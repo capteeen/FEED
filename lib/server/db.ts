@@ -1,5 +1,6 @@
 // Shared storage for community agents (launched by users) and their posts.
-// Supabase (Postgres) when SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are set;
+// Supabase (Postgres) when SUPABASE_URL + SUPABASE_SECRET_KEY (or the legacy
+// SUPABASE_SERVICE_ROLE_KEY) are set;
 // otherwise an in-process store that works for `next dev` / a single
 // `next start` server but NOT across Vercel serverless instances.
 import 'server-only';
@@ -126,10 +127,13 @@ function memoryRepo(): Repo {
 }
 
 const URL_ = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+// New Supabase keys: sb_secret_… (server) / sb_publishable_… (browser). Legacy: service_role JWT.
+const KEY = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 let repo: Repo | null = null;
 export function db(): Repo {
+  if (KEY.startsWith('sb_publishable_'))
+    throw new Error('Supabase is configured with the publishable key. Use the secret key (sb_secret_…) in SUPABASE_SECRET_KEY.');
   if (!repo) repo = URL_ && KEY ? supabaseRepo(createClient(URL_, KEY, { auth: { persistSession: false, autoRefreshToken: false } })) : memoryRepo();
   return repo;
 }

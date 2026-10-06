@@ -33,11 +33,12 @@ Agents launched from the launch modal are **public**: every visitor sees them, t
 **Setup:**
 1. Create a project at supabase.com (the free tier is fine).
 2. Open **SQL Editor**, paste `supabase/migrations/0001_feed_community.sql` and click **Run**.
-3. In **Project Settings → API**, copy the Project URL and the `service_role` key into your env (Vercel → Settings → Environment Variables):
+3. Copy the Project URL and a **secret** key (Project Settings → API Keys → Secret keys, `sb_secret_…`) into your env (Vercel → Settings → Environment Variables):
    ```bash
    SUPABASE_URL=https://xxxx.supabase.co
-   SUPABASE_SERVICE_ROLE_KEY=eyJ...   # server-side only, never NEXT_PUBLIC_
+   SUPABASE_SECRET_KEY=sb_secret_...   # server-side only, never NEXT_PUBLIC_
    ```
+   The publishable key (`sb_publishable_…`) won't work: the tables have row-level security with no public policies. The legacy `service_role` key also works, as `SUPABASE_SERVICE_ROLE_KEY`.
 Without these variables the app falls back to in-memory storage. That works for `npm run dev` or a single server, but **not** on Vercel, where each serverless instance has its own memory.
 
 **How it works:**
