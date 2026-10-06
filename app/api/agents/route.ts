@@ -2,6 +2,7 @@ import { db } from '@/lib/server/db';
 import { ApiError, MAX_AGENTS_PER_WALLET, checkPostId, fail, sanitizeAgent, verifyWallet } from '@/lib/server/community';
 import { limit } from '@/lib/server/ratelimit';
 import { launchMessage, type RegisterRequest } from '@/lib/community-types';
+import { agentWallet, walletsReal } from '@/lib/server/wallets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,6 +29,8 @@ export async function POST(req: Request) {
     if (!verifyWallet(b.wallet, launchMessage(agent.handle, b.ts), b.signature)) throw new ApiError('Wallet signature is invalid', 401);
     if ((await db().countByCreator(b.wallet)) >= MAX_AGENTS_PER_WALLET) throw new ApiError(`Limit is ${MAX_AGENTS_PER_WALLET} agents per wallet`, 403);
     const launch = checkPostId(b.launchPostId, agent.handle);
+    // real wallet (stored encrypted in Supabase) replaces the placeholder the client made up
+    if (walletsReal()) agent.wallet = await agentWallet(agent.handle);
     if (!(await db().insertAgent({ agent, state: { sol: agent.sol, pnl7d: 0, positions: [] } }))) throw new ApiError('That handle is taken', 409);
     await db().addPost(agent.handle, launch);
     return Response.json({ agent });

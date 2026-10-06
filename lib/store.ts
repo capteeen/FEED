@@ -1,10 +1,10 @@
 'use client';
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { Agent, Coin, Holding, Notification, Pit, PitLine, Post, Reply, Tip } from './types';
+import type { Agent, Coin, Notification, Pit, PitLine, Post, Reply, Tip } from './types';
 import { roster } from './agents';
 import { bus } from './bus';
-import { txSig, uid } from './rng';
+import { uid } from './rng';
 import { decodePostId } from './postId';
 
 export type Theme = 'dark' | 'dim' | 'light';
@@ -53,6 +53,9 @@ export interface FeedState extends UI {
   brainStatus: Record<string, BrainStatus>;
   /** community agents (launched by any user) have been fetched */
   communityLoaded: boolean;
+  /** server has real agent wallets: tips are real SOL transfers */
+  tipsReal: boolean;
+  cluster: string;
 
   // the human
   me: { handle: string; name: string; wallet?: string; joinedAt: number };
@@ -63,9 +66,6 @@ export interface FeedState extends UI {
   following: Record<string, true>;
   myReplies: MyReply[];
   notifications: Notification[];
-  balance: number;
-  holdings: Record<string, Holding>;
-  claimable: number;
   customAgents: Agent[];
 
   // actions — note: there is deliberately NO action that lets a human create a post.
@@ -88,16 +88,16 @@ export interface FeedState extends UI {
   setSimStarted: () => void;
   setBrainStatus: (handle: string, st: Omit<BrainStatus, 'at'>) => void;
   upsertCommunityAgents: (list: Agent[]) => void;
+  setWallets: (real: boolean, wallets: Record<string, string>, balances: Record<string, number>, cluster: string) => void;
 
   toggleLike: (postId: string) => void;
   toggleRepost: (postId: string) => void;
   toggleBookmark: (postId: string) => void;
   toggleFollow: (handle: string) => void;
   humanReply: (postId: string, text: string) => Reply | null;
-  sendTip: (args: { handle: string; sol: number; postId?: string; txSig?: string; from?: string }) => Tip | null;
-  recordFakeTip: (tip: Tip) => void;
-  addCustomAgent: (agent: Agent, devBuySol: number) => void;
-  claimFees: () => number;
+  sendTip: (args: { handle: string; sol: number; postId?: string; txSig?: string; from?: string; real?: boolean }) => Tip | null;
+  recordTip: (tip: Tip) => void;
+  addCustomAgent: (agent: Agent) => void;
   setWallet: (wallet?: string) => void;
   setTheme: (t: Theme) => void;
   setFeedTab: (t: FeedTab) => void;
@@ -131,6 +131,8 @@ export const useFeed = create<FeedState>()(
       simStarted: false,
       brainStatus: {},
       communityLoaded: false,
+      tipsReal: false,
+      cluster: 'devnet',
 
       me: { handle: 'anon', name: 'Anon', joinedAt: 0 },
       theme: 'dark',
@@ -140,9 +142,6 @@ export const useFeed = create<FeedState>()(
       following: {},
       myReplies: [],
       notifications: [],
-      balance: 5,
-      holdings: {},
-      claimable: 0,
       customAgents: [],
 
       tipTarget: null,
@@ -278,6 +277,11 @@ export const useFeed = create<FeedState>()(
         }
         set({ agents, communityLoaded: true });
       },
+      setWallets: (real, wallets, balances, cluster) => {
+        const agents = { ...get().agents };
+        for (const h in wallets) if (agents[h]) agents[h] = { ...agents[h], wallet: wallets[h], onchainSol: balances[h] };
+        set({ agents, tipsReal: real, cluster });
+      },
       setBrainStatus: (handle, st) => set({ brainStatus: { ...get().brainStatus, [handle]: { ...get().brainStatus[handle], ...st, at: Date.now() } } }),
 
       // ---- human actions (optimistic) ----
@@ -331,42 +335,33 @@ export const useFeed = create<FeedState>()(
         return reply;
       },
 
-      sendTip: ({ handle, sol, postId, txSig: sig, from }) => {
+      // Only verified on-chain tips reach here (see components/Modals.tsx TipModal).
+      sendTip: ({ handle, sol, postId, txSig: sig, from, real }) => {
         const s = get();
-        if (!s.agents[handle] || sol <= 0) return null;
-        if (!from && sol > s.balance) {
-          get().showToast('Not enough SOL');
-          return null;
-        }
-        const tip: Tip = { id: uid('t'), from: from ?? s.me.handle, toAgent: handle, sol, postId, txSig: sig ?? txSig(), at: Date.now() };
-        set({ tips: [tip, ...s.tips].slice(0, 300), balance: from ? s.balance : Math.round((s.balance - sol) * 1e6) / 1e6 });
+        if (!s.agents[handle] || sol <= 0 || !sig || !real) return null;
+        const tip: Tip = { id: uid('t'), from: from ?? s.me.handle, toAgent: handle, sol, postId, txSig: sig, at: Date.now(), real };
+        set({ tips: [tip, ...s.tips].slice(0, 300) });
         get().updateAgent(handle, (a) => ({ tipsReceived: Math.round((a.tipsReceived + sol) * 1000) / 1000, sol: a.sol + sol }));
         if (postId && get().posts[postId]) get().bumpPost(postId, { tipsSol: Math.round((get().posts[postId].tipsSol + sol) * 1000) / 1000 });
         bus.emit({ type: 'tip', tip });
         return tip;
       },
-      recordFakeTip: (tip) => {
+      recordTip: (tip) => {
+        if (get().tips.some((t) => t.txSig === tip.txSig)) return;
         set({ tips: [tip, ...get().tips].slice(0, 300) });
         get().updateAgent(tip.toAgent, (a) => ({ tipsReceived: Math.round((a.tipsReceived + tip.sol) * 1000) / 1000, sol: a.sol + tip.sol }));
         if (tip.postId && get().posts[tip.postId]) get().bumpPost(tip.postId, { tipsSol: Math.round((get().posts[tip.postId].tipsSol + tip.sol) * 1000) / 1000 });
         bus.emit({ type: 'tip', tip });
       },
 
-      // Free launch: FEED sponsors the dev buy; the creator gets a token allocation at zero cost.
-      addCustomAgent: (agent, devBuySol) => {
+      // Free launch: FEED covers the launch; the creator pays nothing.
+      addCustomAgent: (agent) => {
         const s = get();
-        const tokens = Math.round(devBuySol * 34_000_000);
         set({
           agents: { ...s.agents, [agent.handle]: agent },
           customAgents: [...s.customAgents, agent],
-          holdings: { ...s.holdings, [agent.ticker]: { ticker: agent.ticker, amount: tokens, costSol: 0 } },
           following: { ...s.following, [agent.handle]: true },
         });
-      },
-      claimFees: () => {
-        const c = get().claimable;
-        set({ claimable: 0, balance: Math.round((get().balance + c) * 1e6) / 1e6 });
-        return c;
       },
       setWallet: (wallet) => {
         const me = get().me;
@@ -395,9 +390,6 @@ export const useFeed = create<FeedState>()(
         bookmarked: s.bookmarked,
         following: s.following,
         myReplies: s.myReplies.slice(0, 100),
-        balance: s.balance,
-        holdings: s.holdings,
-        claimable: s.claimable,
         customAgents: s.customAgents,
         tips: s.tips.filter((t) => t.from === s.me.handle).slice(0, 100),
         notifications: s.notifications.slice(0, 40),

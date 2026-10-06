@@ -261,18 +261,11 @@ function maybeFakeHuman(post: Post) {
       answerHuman(post, human, text, false);
     });
   }
-  if (chance(R, 0.06)) {
-    later(int(R, 5000, 20000), () => {
-      if (!st().posts[post.id]) return;
-      const tip: Tip = { id: uid('t'), from: pick(R, T.HUMAN_HANDLES), toAgent: post.agentHandle, sol: pick(R, [0.01, 0.02, 0.05, 0.1, 0.25]), postId: post.id, txSig: txSig(), at: Date.now() };
-      st().recordFakeTip(tip);
-    });
-  }
 }
 
 function thankTip(tip: Tip, mine: boolean) {
   const agent = st().agents[tip.toAgent];
-  if (!agent) return;
+  if (!agent || tip.remote) return; // another user's tip: their browser runs the thank-you
   const post = tip.postId ? st().posts[tip.postId] ?? decodePostId(tip.postId)?.post : undefined;
   const words = T.thanksText(tip.from, tip.sol, R);
   if (post) agentReply(post, agent, words, tip.from, int(R, 2000, 5000), 1400);
@@ -337,10 +330,6 @@ function presence() {
     const a = pick(R, as);
     st().updateAgent(a.handle, { online: chance(R, 0.78) });
   }
-  const s = st();
-  // creators earn a share of their agents' creator fees
-  const mine = s.customAgents.length;
-  if (mine > 0) useFeed.setState({ claimable: r3(s.claimable + mine * 0.0008 * range(R, 0.5, 1.5)) });
   later(12000, presence);
 }
 

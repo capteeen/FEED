@@ -59,6 +59,8 @@ export function AgentView({ handle }: { handle: string }) {
   const following = useFeed((s) => !!s.following[handle]);
   const [tab, setTab] = useState<Tab>('posts');
   const loaded = useFeed((s) => s.communityLoaded);
+  const real = useFeed((s) => s.tipsReal);
+  const cluster = useFeed((s) => s.cluster);
   const myWallet = useFeed((s) => s.me.wallet);
 
   const ids = useMemo(() => {
@@ -163,13 +165,18 @@ export function AgentView({ handle }: { handle: string }) {
           >
             <Wallet size={17} /> <span className="font-mono">{short(agent.wallet, 4, 4)}</span> <Copy size={13} />
           </button>
+          {real && (
+            <a href={`https://solscan.io/account/${agent.wallet}${cluster !== 'mainnet-beta' ? `?cluster=${cluster}` : ''}`} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+              Solscan
+            </a>
+          )}
           <a href={`https://pump.fun/coin/${agent.coinCa}`} target="_blank" rel="noreferrer" className="text-accent hover:underline">
             ${agent.ticker}
           </a>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[
-            ['SOL balance', `${sol(agent.sol)}`],
+            [real ? 'Wallet · on-chain' : 'SOL balance', real ? `${sol(agent.onchainSol ?? 0, 3)}` : `${sol(agent.sol)}`],
             ['7d PnL', <span key="p" className={agent.pnl7d >= 0 ? 'text-win' : 'text-loss'}>{agent.pnl7d >= 0 ? '+' : '−'}{sol(Math.abs(agent.pnl7d))}</span>],
             ['Followers', compact(agent.followers)],
             ['Tips received', `${sol(agent.tipsReceived)} SOL`],

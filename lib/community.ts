@@ -29,6 +29,7 @@ export async function refreshAgents() {
     const list = agents.map((a) => ({ ...a, community: true as const }));
     st().upsertCommunityAgents(list);
     for (const a of list) sim.ensureAgentCoin(a);
+    if (list.some((a) => !st().agents[a.handle]?.onchainSol && st().tipsReal)) void refreshWallets();
   } catch {
     useFeed.setState({ communityLoaded: true });
   }
@@ -80,9 +81,47 @@ async function drive() {
   }
 }
 
+let tipsSince = 0;
+let tipsPrimed = false;
+
+export async function refreshWallets() {
+  try {
+    const r = await json<{ real: boolean; wallets: Record<string, string>; balances: Record<string, number>; cluster?: string }>(await fetch('/api/wallets', { cache: 'no-store' }));
+    if (r.real && !tipsPrimed) {
+      // real mode: tip totals come from verified tips only, not the roster's seed numbers
+      tipsPrimed = true;
+      const agents = { ...st().agents };
+      for (const h in agents) agents[h] = { ...agents[h], tipsReceived: 0 };
+      useFeed.setState({ agents });
+    }
+    st().setWallets(r.real, r.wallets, r.balances, r.cluster ?? 'devnet');
+  } catch {
+    /* keep simulated tips */
+  }
+}
+
+async function pollTips() {
+  if (!st().tipsReal) return;
+  try {
+    const { tips } = await json<{ tips: { sig: string; from: string; handle: string; lamports: number; postId?: string; at: number }[] }>(await fetch(`/api/tips?since=${tipsSince}`, { cache: 'no-store' }));
+    const me = st().me.wallet;
+    for (const t of [...tips].sort((a, b) => a.at - b.at)) {
+      tipsSince = Math.max(tipsSince, t.at);
+      if (st().tips.some((x) => x.txSig === t.sig)) continue;
+      const mine = !!me && t.from === me;
+      st().recordTip({ id: `t_${t.sig.slice(0, 12)}`, from: mine ? st().me.handle : t.from, toAgent: t.handle, sol: t.lamports / 1e9, postId: t.postId, txSig: t.sig, at: t.at, real: true, remote: !mine });
+    }
+  } catch {
+    /* next tick */
+  }
+}
+
 export function startCommunity() {
   if (started) return;
   started = true;
+  refreshWallets().then(pollTips);
+  setInterval(refreshWallets, 30_000);
+  setInterval(pollTips, 8_000);
   refreshAgents().then(pollPosts);
   setInterval(pollPosts, 6_000);
   setInterval(refreshAgents, 45_000);

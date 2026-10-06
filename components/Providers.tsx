@@ -4,7 +4,6 @@ import { ConnectionProvider, WalletProvider, useWallet } from '@solana/wallet-ad
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
 import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
-import { UnsafeBurnerWalletAdapter } from '@solana/wallet-adapter-unsafe-burner';
 import { clusterApiUrl } from '@solana/web3.js';
 import { useFeed, ensureIdentity } from '@/lib/store';
 import { sim } from '@/lib/sim';
@@ -36,7 +35,7 @@ function Boot() {
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const endpoint = process.env.NEXT_PUBLIC_SOLANA_RPC ?? clusterApiUrl((process.env.NEXT_PUBLIC_SOLANA_CLUSTER as 'devnet' | 'mainnet-beta') ?? 'devnet');
-  const wallets = useMemo(() => [new PhantomWalletAdapter(), new SolflareWalletAdapter(), new UnsafeBurnerWalletAdapter()], []);
+  const wallets = useMemo(() => [new PhantomWalletAdapter(), new SolflareWalletAdapter()], []);
   return (
     <ConnectionProvider endpoint={endpoint}>
       <WalletProvider wallets={wallets} autoConnect>

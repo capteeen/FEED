@@ -7,6 +7,12 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { AgentState, CommunityAgent, FeedPostRef } from '../community-types';
+import type { WalletRecord } from './wallets';
+import type { VerifiedTip } from './tips';
+
+export interface TipRecord extends VerifiedTip {
+  postId?: string;
+}
 
 export interface AgentRecord {
   agent: CommunityAgent;
@@ -26,6 +32,13 @@ export interface Repo {
   /** acquire the agent's turn lease; true when this token now holds it */
   tryLease(handle: string, token: string, ttlMs: number): Promise<boolean>;
   leaseToken(handle: string): Promise<string | null>;
+  // real wallets + verified tips
+  getWallet(handle: string): Promise<WalletRecord | null>;
+  insertWallet(rec: WalletRecord): Promise<boolean>;
+  listWallets(): Promise<WalletRecord[]>;
+  /** false when the signature was already recorded */
+  insertTip(tip: TipRecord): Promise<boolean>;
+  listTips(q: { since?: number; handle?: string; from?: string; limit: number }): Promise<TipRecord[]>;
 }
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -75,14 +88,43 @@ function supabaseRepo(sb: SupabaseClient): Repo {
       const l = rows[0];
       return l && new Date(l.expires_at).getTime() > Date.now() ? l.token : null;
     },
+    async getWallet(handle) {
+      const rows = ok(await sb.from('feed_wallets').select('handle, pubkey, secret_enc, created_at').eq('handle', handle).limit(1)) as { handle: string; pubkey: string; secret_enc: string; created_at: string }[];
+      const w = rows[0];
+      return w ? { handle: w.handle, pubkey: w.pubkey, secretEnc: w.secret_enc, createdAt: new Date(w.created_at).getTime() } : null;
+    },
+    async insertWallet(rec) {
+      const r = await sb.from('feed_wallets').insert({ handle: rec.handle, pubkey: rec.pubkey, secret_enc: rec.secretEnc });
+      if (r.error?.code === '23505') return false;
+      ok(r);
+      return true;
+    },
+    async listWallets() {
+      const rows = ok(await sb.from('feed_wallets').select('handle, pubkey, created_at').limit(5000)) as { handle: string; pubkey: string; created_at: string }[];
+      return rows.map((w) => ({ handle: w.handle, pubkey: w.pubkey, secretEnc: '', createdAt: new Date(w.created_at).getTime() }));
+    },
+    async insertTip(t) {
+      const r = await sb.from('feed_tips').insert({ sig: t.sig, from_wallet: t.from, to_handle: t.handle, lamports: t.lamports, post_id: t.postId ?? null, ref: t.ref, at: t.at });
+      if (r.error?.code === '23505') return false;
+      ok(r);
+      return true;
+    },
+    async listTips(q) {
+      let qb = sb.from('feed_tips').select('sig, from_wallet, to_handle, lamports, post_id, ref, at').order('at', { ascending: false }).limit(q.limit);
+      if (q.since) qb = qb.gt('at', q.since);
+      if (q.handle) qb = qb.eq('to_handle', q.handle);
+      if (q.from) qb = qb.eq('from_wallet', q.from);
+      const rows = ok(await qb) as { sig: string; from_wallet: string; to_handle: string; lamports: number; post_id: string | null; ref: string; at: number }[];
+      return rows.map((r) => ({ sig: r.sig, from: r.from_wallet, handle: r.to_handle, lamports: Number(r.lamports), postId: r.post_id ?? undefined, ref: r.ref, at: Number(r.at) }));
+    },
   };
 }
 
 // ---- in-memory fallback --------------------------------------------------------
 function memoryRepo(): Repo {
-  type Mem = { agents: Map<string, AgentRecord>; posts: (FeedPostRef & { key: string })[]; leases: Map<string, { token: string; exp: number }> };
+  type Mem = { agents: Map<string, AgentRecord>; posts: (FeedPostRef & { key: string })[]; leases: Map<string, { token: string; exp: number }>; wallets: Map<string, WalletRecord>; tips: Map<string, TipRecord> };
   const g = globalThis as unknown as { __feedMem?: Mem };
-  const m: Mem = (g.__feedMem ??= { agents: new Map(), posts: [], leases: new Map() });
+  const m: Mem = (g.__feedMem ??= { agents: new Map(), posts: [], leases: new Map(), wallets: new Map(), tips: new Map() });
   return {
     kind: 'memory',
     async listAgents() {
@@ -122,6 +164,28 @@ function memoryRepo(): Repo {
     async leaseToken(h) {
       const cur = m.leases.get(h);
       return cur && cur.exp > Date.now() ? cur.token : null;
+    },
+    async getWallet(h) {
+      return m.wallets.get(h) ?? null;
+    },
+    async insertWallet(rec) {
+      if (m.wallets.has(rec.handle)) return false;
+      m.wallets.set(rec.handle, rec);
+      return true;
+    },
+    async listWallets() {
+      return [...m.wallets.values()];
+    },
+    async insertTip(t) {
+      if (m.tips.has(t.sig)) return false;
+      m.tips.set(t.sig, t);
+      return true;
+    },
+    async listTips(q) {
+      return [...m.tips.values()]
+        .filter((t) => (!q.since || t.at > q.since) && (!q.handle || t.handle === q.handle) && (!q.from || t.from === q.from))
+        .sort((a, b) => b.at - a.at)
+        .slice(0, q.limit);
     },
   };
 }

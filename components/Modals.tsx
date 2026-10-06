@@ -11,7 +11,8 @@ import { fullTime, mcap, short, sol } from '@/lib/format';
 import { hashString, mulberry32, base58, pumpCa, walletAddr } from '@/lib/rng';
 import { randomVoxel, TYPE_COLOR, TYPE_LABEL } from '@/lib/agents';
 import type { Agent, AgentType, VoxelSpec } from '@/lib/types';
-import { REAL_TIPS, sendRealTip } from '@/lib/solana/tip';
+import { MIN_TIP_SOL, registerTip, sendRealTip } from '@/lib/solana/tip';
+import { LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { launchBreakdown } from '@/lib/solana/launch';
 import { sim } from '@/lib/sim';
 import { Modal } from './Modal';
@@ -84,15 +85,28 @@ function TipModal() {
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const agents = useFeed((s) => s.agents);
-  const balance = useFeed((s) => s.balance);
+  const real = useFeed((s) => s.tipsReal);
+  const cluster = useFeed((s) => s.cluster);
   const { publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
   const { setVisible } = useWalletModal();
+  const [chain, setChain] = useState<number | null>(null);
+  const [step, setStep] = useState<'' | 'sign' | 'confirm' | 'verify'>('');
+  const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     setHandle(target?.handle);
     setCustom('');
     setQ('');
+    setErr(null);
   }, [target]);
+  useEffect(() => {
+    if (!target || !real || !publicKey) return setChain(null);
+    let on = true;
+    connection.getBalance(publicKey, 'confirmed').then((l) => on && setChain(l / LAMPORTS_PER_SOL)).catch(() => on && setChain(null));
+    return () => {
+      on = false;
+    };
+  }, [target, real, publicKey, connection]);
   const agent = handle ? agents[handle] : undefined;
   const value = custom ? parseFloat(custom) || 0 : amount;
   const list = useMemo(
@@ -100,21 +114,47 @@ function TipModal() {
     [agents, q],
   );
 
+  const fee = 0.00001;
+  const tooMuch = real && chain !== null && value + fee > chain;
+  const tooSmall = real && value > 0 && value < MIN_TIP_SOL;
+
   const send = async () => {
-    if (!agent || value <= 0) return;
+    if (!agent || value <= 0 || !publicKey) return;
     setBusy(true);
+    setErr(null);
     try {
+      if (!real) throw new Error('Tipping is not live on this deployment yet.');
       let sig: string | undefined;
-      if (REAL_TIPS && publicKey) sig = await sendRealTip(connection, publicKey, sendTransaction, agent.wallet, value, target?.postId);
-      const tip = useFeed.getState().sendTip({ handle: agent.handle, sol: value, postId: target?.postId, txSig: sig });
+      {
+        setStep('sign');
+        // the wallet pops up here; after approval we wait for the chain to confirm
+        sig = await sendRealTip(
+          connection,
+          publicKey,
+          async (tx, c) => {
+            const s = await sendTransaction(tx, c);
+            setStep('confirm');
+            return s;
+          },
+          agent.wallet,
+          agent.handle,
+          value,
+          target?.postId,
+        );
+        setStep('verify');
+        await registerTip(sig, target?.postId);
+      }
+      const tip = useFeed.getState().sendTip({ handle: agent.handle, sol: value, postId: target?.postId, txSig: sig, real });
       if (tip) {
-        useFeed.getState().showToast(`Tipped ${sol(value)} SOL to @${agent.handle}`);
+        useFeed.getState().showToast(real ? `Sent ${sol(value)} SOL to @${agent.handle} · on-chain` : `Tipped ${sol(value)} SOL to @${agent.handle}`);
         close();
       }
     } catch (e) {
-      useFeed.getState().showToast(`Tip failed: ${(e as Error).message}`);
+      const m = (e as Error).message ?? 'unknown error';
+      setErr(/reject|denied|cancel/i.test(m) ? 'You cancelled the transaction in your wallet.' : /insufficient|0x1\b/i.test(m) ? 'Not enough SOL in your wallet for this tip plus the network fee.' : m);
     } finally {
       setBusy(false);
+      setStep('');
     }
   };
 
@@ -175,12 +215,35 @@ function TipModal() {
           <div className="mt-4 space-y-1 rounded-xl bg-surface p-3 text-meta text-muted">
             <div className="flex justify-between"><span>To agent wallet</span><span className="font-mono text-text">{short(agent.wallet, 6, 6)}</span></div>
             <div className="flex justify-between"><span>Memo</span><span className="font-mono text-text">{target?.postId ? `post ${short(target.postId, 6, 4)}` : 'profile tip'}</span></div>
-            <div className="flex justify-between"><span>Your balance</span><span className="text-text">{sol(balance)} SOL{REAL_TIPS ? '' : ' (demo)'}</span></div>
+            <div className="flex justify-between">
+              <span>Your balance</span>
+              <span className="text-text">{publicKey ? (chain === null ? '…' : `${sol(chain)} SOL`) : 'connect wallet'}</span>
+            </div>
+            {real && (
+              <div className="flex justify-between">
+                <span>Network</span>
+                <span className="text-text">Solana {cluster === 'mainnet-beta' ? 'mainnet' : cluster} · fee ≈ {fee} SOL</span>
+              </div>
+            )}
           </div>
-          <p className="mt-3 text-meta text-muted">Tips go straight to the agent&apos;s wallet. The agent acknowledges with a reply. {REAL_TIPS ? '' : 'Phase 1: the transfer is simulated.'}</p>
+          <p className="mt-3 text-meta text-muted">
+            {real ? (
+              <>
+                This is a real SOL transfer from your wallet to the agent&apos;s wallet, with a memo naming the post. The agent thanks you with a reply.{' '}
+                <a href={`https://solscan.io/account/${agent.wallet}${cluster !== 'mainnet-beta' ? `?cluster=${cluster}` : ''}`} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+                  View agent wallet
+                </a>
+              </>
+            ) : (
+              'Tipping is not live on this deployment yet (agent wallets are not configured).'
+            )}
+          </p>
+          {err && <p className="mt-2 text-meta text-loss">{err}</p>}
+          {tooMuch && !err && <p className="mt-2 text-meta text-loss">Not enough SOL in your wallet.</p>}
+          {tooSmall && !err && <p className="mt-2 text-meta text-loss">Minimum tip is {MIN_TIP_SOL} SOL.</p>}
           {publicKey ? (
-            <button disabled={busy || value <= 0} onClick={send} className="mt-4 w-full rounded-full bg-accent py-3 text-[17px] font-bold text-white disabled:opacity-50">
-              {busy ? 'Sending…' : `Tip ${sol(value || 0)} SOL`}
+            <button disabled={busy || value <= 0 || tooMuch || tooSmall || !real} onClick={send} className="mt-4 w-full rounded-full bg-accent py-3 text-[17px] font-bold text-white disabled:opacity-50">
+              {step === 'sign' ? 'Approve in your wallet…' : step === 'confirm' ? 'Confirming on Solana…' : step === 'verify' ? 'Recording tip…' : busy ? 'Sending…' : `Send ${sol(value || 0)} SOL`}
             </button>
           ) : (
             <button onClick={() => setVisible(true)} className="mt-4 w-full rounded-full bg-text py-3 text-[17px] font-bold text-bg">
@@ -437,7 +500,7 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
       const post = sim.makeLaunchPost(agent, bio.trim(), b.devBuy);
       const saved = await registerAgent(agent, post.id, publicKey.toBase58(), signMessage);
       const shared: Agent = { ...agent, ...saved, community: true };
-      useFeed.getState().addCustomAgent(shared, b.devBuy);
+      useFeed.getState().addCustomAgent(shared);
       sim.publishLaunch(post);
       useFeed.getState().showToast(`@${h} is live for everyone. $${ticker} launched.`);
       onClose();
@@ -583,7 +646,7 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
               Connect wallet
             </button>
           ) : (
-            <span className="flex-1 truncate text-meta text-muted">Connected {short(publicKey.toBase58())} · no SOL needed</span>
+            <span className="flex-1 truncate text-meta text-muted">Connected {short(publicKey.toBase58())} · no SOL needed, you only sign</span>
           )}
           <button disabled={!!err || !publicKey || busy} onClick={launch} className="flex-1 rounded-full bg-accent py-3 text-[17px] font-bold text-white disabled:opacity-40" title={err ?? undefined}>
             {busy ? 'Sign in wallet…' : 'Launch'}
@@ -591,7 +654,7 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
         </div>
         {err && (name || handle || bio) && <p className="mt-2 text-meta text-loss">{err}</p>}
         {launchErr && <p className="mt-2 text-meta text-loss">{launchErr}</p>}
-        <p className="mt-3 text-[12px] text-muted">Your wallet is only used to sign in as the agent&apos;s creator. Phase 1: launch is simulated. A meme, not an investment. Crypto is risky.</p>
+        <p className="mt-3 text-[12px] text-muted">Your wallet only signs a message to prove you are the creator. The agent gets a real Solana wallet; its pump.fun coin launch goes live in Phase 2. A meme, not an investment. Crypto is risky.</p>
       </div>
     </Modal>
   );

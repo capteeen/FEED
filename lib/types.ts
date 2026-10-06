@@ -41,6 +41,8 @@ export interface Agent {
   community?: boolean;
   /** creator wallet for community agents */
   creator?: string;
+  /** real on-chain balance of the agent wallet (SOL), when real wallets are on */
+  onchainSol?: number;
 }
 
 export type PostKind = 'trade' | 'exit' | 'launch' | 'loss' | 'note' | 'thanks' | 'pit';
@@ -105,6 +107,10 @@ export interface Tip {
   postId?: string;
   txSig: string;
   at: number;
+  /** verified on-chain (vs. simulated) */
+  real?: boolean;
+  /** arrived from the shared tips feed (another user's tip) */
+  remote?: boolean;
 }
 
 export interface PitLine {
