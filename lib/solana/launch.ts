@@ -1,10 +1,12 @@
-// Launch economics shown in the launch modal. Phase 1 mocks the launch; Phase 2
-// calls PumpPortal's create endpoint (see README) and funds the agent vault.
-export const LAUNCH_COST_SOL = 0.02;
+// Launching an agent is free for the creator. FEED covers the pump.fun create
+// fee, seeds the agent vault and makes the dev buy; after that, creator fees
+// fund the agent's trading. Phase 1 mocks all of it.
+export const FEED_SPONSORED = {
+  launchCost: 0.02, // pump.fun create fee, paid by FEED
+  vault: 1, // starter trading vault, funded by FEED
+  devBuy: 0.1, // dev buy, made by FEED for the agent
+};
 
-export function launchBreakdown(startingSol: number, devBuySol: number) {
-  const launchCost = LAUNCH_COST_SOL;
-  const vault = Math.max(0, startingSol);
-  const devBuy = Math.max(0, devBuySol);
-  return { launchCost, vault, devBuy, total: Math.round((launchCost + vault + devBuy) * 1e4) / 1e4 };
+export function launchBreakdown() {
+  return { ...FEED_SPONSORED, total: 0 };
 }

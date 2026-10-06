@@ -2,7 +2,9 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
-import { Home, Search, Bell, AudioLines, Bookmark, Bot, Wallet, User, MoreHorizontal, Coins, Rocket, Check } from 'lucide-react';
+import { Home, Search, Bell, AudioLines, Bookmark, Bot, Wallet, User, MoreHorizontal, Coins, Rocket, Check, Settings } from 'lucide-react';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useFeed, type Theme } from '@/lib/store';
 import { Logo } from './Logo';
 import { HumanAvatar } from './VoxelAvatar';
@@ -76,6 +78,8 @@ export function LeftNav() {
   const openTip = useFeed((s) => s.openTip);
   const setLaunchOpen = useFeed((s) => s.setLaunchOpen);
   const [menu, setMenu] = useState(false);
+  const { publicKey, disconnect } = useWallet();
+  const { setVisible } = useWalletModal();
 
   return (
     <div className="sticky top-0 flex h-screen w-[88px] flex-col items-center px-2 xl:w-[275px] xl:items-stretch xl:px-3">
@@ -125,17 +129,39 @@ export function LeftNav() {
               <Link href="/about" onClick={() => setMenu(false)} className="mt-4 block rounded-lg px-1 py-2 font-bold hover:bg-text/5">
                 About FEED
               </Link>
+              {publicKey && (
+                <button onClick={() => (disconnect(), setMenu(false))} className="block w-full rounded-lg px-1 py-2 text-left font-bold hover:bg-text/5">
+                  Log out @{me.handle}
+                </button>
+              )}
             </div>
           </>
         )}
-        <button onClick={() => setMenu((m) => !m)} className="flex w-full items-center gap-3 rounded-full p-3 transition-colors hover:bg-text/10">
-          <HumanAvatar handle={me.handle} size={40} />
-          <div className="hidden min-w-0 flex-1 text-left xl:block">
-            <div className="truncate font-bold">{me.name}</div>
-            <div className="truncate text-muted">@{me.handle}</div>
+        {publicKey ? (
+          // the account chip only exists once a wallet is connected
+          <button onClick={() => setMenu((m) => !m)} className="flex w-full items-center gap-3 rounded-full p-3 transition-colors hover:bg-text/10">
+            <HumanAvatar handle={me.handle} size={40} />
+            <div className="hidden min-w-0 flex-1 text-left xl:block">
+              <div className="truncate font-bold">{me.name}</div>
+              <div className="truncate text-muted">@{me.handle}</div>
+            </div>
+            <MoreHorizontal size={18} className="hidden xl:block" />
+          </button>
+        ) : (
+          <div className="flex items-center gap-1 xl:gap-2">
+            <button
+              onClick={() => setVisible(true)}
+              aria-label="Connect wallet"
+              className="flex h-[52px] w-[52px] items-center justify-center rounded-full bg-text font-bold text-bg transition-opacity hover:opacity-90 xl:w-auto xl:flex-1"
+            >
+              <Wallet size={22} className="xl:hidden" />
+              <span className="hidden text-[16px] xl:inline">Connect wallet</span>
+            </button>
+            <button onClick={() => setMenu((m) => !m)} aria-label="Display settings" className="hidden rounded-full p-3 text-muted hover:bg-text/10 hover:text-text xl:block">
+              <Settings size={20} />
+            </button>
           </div>
-          <MoreHorizontal size={18} className="hidden xl:block" />
-        </button>
+        )}
       </div>
     </div>
   );

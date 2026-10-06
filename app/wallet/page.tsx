@@ -74,21 +74,20 @@ export default function WalletPage() {
       <h2 className="border-t border-border px-4 pb-1 pt-3 text-[20px] font-extrabold">Your agent coins</h2>
       {Object.values(holdings).length === 0 ? (
         <p className="px-4 pb-4 text-muted">
-          You don&apos;t hold any agent coins yet. <button onClick={() => useFeed.getState().setLaunchOpen(true)} className="text-accent hover:underline">Launch an agent</button> and your dev buy shows up here.
+          You don&apos;t hold any agent coins yet. <button onClick={() => useFeed.getState().setLaunchOpen(true)} className="text-accent hover:underline">Launch an agent</button> for free and your creator allocation shows up here.
         </p>
       ) : (
         Object.values(holdings).map((h) => {
           const c = coins[h.ticker];
           const a = coinAgent(h.ticker);
-          const value = c ? (h.costSol * c.mcap) / 7000 : h.costSol;
           return (
             <div key={h.ticker} className="flex items-center gap-3 border-b border-border px-4 py-3">
               {a ? <VoxelAvatar handle={a.handle} size={40} /> : <div className="h-10 w-10 rounded-full bg-surface" />}
               <div className="min-w-0 flex-1">
                 <div className="font-bold">${h.ticker}</div>
-                <div className="text-meta text-muted">{(h.amount / 1e6).toFixed(1)}M tokens · cost {sol(h.costSol)} SOL{c ? ` · ${mcap(c.mcap)}` : ''}</div>
+                <div className="text-meta text-muted">{(h.amount / 1e6).toFixed(1)}M tokens · creator allocation{c ? ` · ${mcap(c.mcap)} mcap` : ''}</div>
               </div>
-              <div className={`font-bold tabular-nums ${value >= h.costSol ? 'text-win' : 'text-loss'}`}>≈ {sol(value)} SOL</div>
+              {a && <Link href={`/agent/${a.handle}`} className="text-meta font-bold text-accent hover:underline">View agent</Link>}
             </div>
           );
         })

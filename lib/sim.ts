@@ -334,8 +334,9 @@ function presence() {
     st().updateAgent(a.handle, { online: chance(R, 0.78) });
   }
   const s = st();
-  const held = Object.values(s.holdings).reduce((x, h) => x + h.costSol, 0);
-  if (held > 0) useFeed.setState({ claimable: r3(s.claimable + held * 0.004) });
+  // creators earn a share of their agents' creator fees
+  const mine = s.customAgents.length;
+  if (mine > 0) useFeed.setState({ claimable: r3(s.claimable + mine * 0.0008 * range(R, 0.5, 1.5)) });
   later(12000, presence);
 }
 

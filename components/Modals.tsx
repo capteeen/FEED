@@ -376,7 +376,6 @@ function LaunchModal() {
 function LaunchForm({ onClose }: { onClose: () => void }) {
   const router = useRouter();
   const agents = useFeed((s) => s.agents);
-  const balance = useFeed((s) => s.balance);
   const { publicKey } = useWallet();
   const { setVisible } = useWalletModal();
   const [name, setName] = useState('');
@@ -384,14 +383,12 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
   const [type, setType] = useState<AgentType>('trader');
   const [voxel, setVoxel] = useState<VoxelSpec>(() => randomVoxel(Math.random));
   const [bio, setBio] = useState('');
-  const [startSol, setStartSol] = useState('0.5');
-  const [devBuy, setDevBuy] = useState('0.2');
   const [busy, setBusy] = useState(false);
   const [brain, setBrain] = useState<'sim' | 'deepseek'>('deepseek');
   const [voice, setVoice] = useState('');
   const server = useServerKey();
   const [, bumpKey] = useState(0);
-  const b = launchBreakdown(parseFloat(startSol) || 0, parseFloat(devBuy) || 0);
+  const b = launchBreakdown();
   const h = handle.toLowerCase();
   const ticker = (h.replace(/[^a-z]/g, '').slice(0, 5) || 'AGENT').toUpperCase();
   const err = !name.trim()
@@ -404,14 +401,12 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
           ? 'Give it a one-line strategy'
           : brain === 'deepseek' && server && !server.serverKey && !getUserKey()
             ? 'Add a DeepSeek API key for a real agent'
-          : b.total > balance
-            ? `You need ${sol(b.total)} SOL (have ${sol(balance)})`
             : null;
 
   const launch = async () => {
     if (err || !publicKey) return;
     setBusy(true);
-    await new Promise((r) => setTimeout(r, 900)); // mocked pump.fun create + vault funding
+    await new Promise((r) => setTimeout(r, 900)); // mocked: FEED pays the create fee, vault and dev buy
     const agent: Agent = {
       handle: h,
       name: name.trim(),
@@ -431,7 +426,7 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
       brain,
       ...(brain === 'deepseek' && voice.trim() ? { voice: voice.trim() } : {}),
     };
-    useFeed.getState().addCustomAgent(agent, b.devBuy, b.total);
+    useFeed.getState().addCustomAgent(agent, b.devBuy);
     sim.launchCustomAgent(agent, bio.trim(), b.devBuy);
     useFeed.getState().showToast(`@${h} is live. $${ticker} launched.`);
     onClose();
@@ -524,16 +519,6 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
               </label>
             )}
             {brain === 'deepseek' && server && !server.serverKey && <KeyInput onSaved={() => bumpKey((n) => n + 1)} />}
-            <div className="grid grid-cols-2 gap-3">
-              <label className="relative block">
-                <Label>Starting SOL</Label>
-                <input inputMode="decimal" value={startSol} onChange={(e) => setStartSol(e.target.value.replace(/[^0-9.]/g, ''))} className={field} />
-              </label>
-              <label className="relative block">
-                <Label>Dev buy (SOL)</Label>
-                <input inputMode="decimal" value={devBuy} onChange={(e) => setDevBuy(e.target.value.replace(/[^0-9.]/g, ''))} className={field} />
-              </label>
-            </div>
           </div>
         </div>
 
@@ -545,16 +530,19 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
           ].map(([k, v]) => (
             <div key={k as string} className="flex justify-between border-b border-border px-4 py-2.5">
               <span className="text-muted">{k}</span>
-              <span className="tabular-nums">{sol(v as number, 3)} SOL</span>
+              <span className="tabular-nums">
+                <span className="text-muted">{sol(v as number, 2)} SOL · </span>
+                <span className="font-bold text-win">paid by FEED</span>
+              </span>
             </div>
           ))}
           <div className="flex justify-between px-4 py-3 text-[17px] font-bold">
             <span>You pay</span>
-            <span className="tabular-nums">{sol(b.total, 3)} SOL</span>
+            <span className="tabular-nums text-win">Free</span>
           </div>
         </div>
         <p className="mt-3 text-muted">
-          Your agent gets a pump.fun coin <b className="text-text">${ticker}</b> and its own wallet. It posts every action here with a receipt. Creator fees fund its trading.
+          Launching is free. Your agent gets a pump.fun coin <b className="text-text">${ticker}</b> and its own wallet. It posts every action here with a receipt. Creator fees fund its trading.
           {brain === 'deepseek' && ' Its decisions, posts and replies are written by DeepSeek from your strategy line.'}
         </p>
         <div className="mt-4 flex items-center gap-3">
@@ -563,14 +551,14 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
               Connect wallet
             </button>
           ) : (
-            <span className="flex-1 truncate text-meta text-muted">Connected {short(publicKey.toBase58())} · balance {sol(balance)} SOL (demo)</span>
+            <span className="flex-1 truncate text-meta text-muted">Connected {short(publicKey.toBase58())} · no SOL needed</span>
           )}
           <button disabled={!!err || !publicKey || busy} onClick={launch} className="flex-1 rounded-full bg-accent py-3 text-[17px] font-bold text-white disabled:opacity-40" title={err ?? undefined}>
             {busy ? 'Launching…' : 'Launch'}
           </button>
         </div>
         {err && (name || handle || bio) && <p className="mt-2 text-meta text-loss">{err}</p>}
-        <p className="mt-3 text-[12px] text-muted">Phase 1: launch is simulated. A meme, not an investment. Crypto is risky.</p>
+        <p className="mt-3 text-[12px] text-muted">Your wallet is only used to sign in as the agent&apos;s creator. Phase 1: launch is simulated. A meme, not an investment. Crypto is risky.</p>
       </div>
     </Modal>
   );

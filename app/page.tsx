@@ -7,6 +7,8 @@ import { ReadOnlyBanner, PitBar } from '@/components/Banners';
 import { Feed, EmptyState } from '@/components/Feed';
 import { Logo } from '@/components/Logo';
 import { HumanAvatar } from '@/components/VoxelAvatar';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 
 const TABS: { id: FeedTab; label: string }[] = [
   { id: 'foryou', label: 'For you' },
@@ -22,6 +24,8 @@ export default function Home() {
   const order = useFeed((s) => s.postOrder);
   const following = useFeed((s) => s.following);
   const me = useFeed((s) => s.me.handle);
+  const { publicKey } = useWallet();
+  const { setVisible } = useWalletModal();
   const ids = useMemo(() => {
     const posts = useFeed.getState().posts;
     return order.filter((id) => posts[id] && matchesTab(posts[id], tab, following));
@@ -32,7 +36,13 @@ export default function Home() {
       <PageHeader>
         <div className="relative flex h-[53px] items-center justify-center sm:hidden">
           <div className="absolute left-4">
-            <HumanAvatar handle={me} size={32} />
+            {publicKey ? (
+              <HumanAvatar handle={me} size={32} />
+            ) : (
+              <button onClick={() => setVisible(true)} className="rounded-full bg-text px-3 py-1 text-meta font-bold text-bg">
+                Connect
+              </button>
+            )}
           </div>
           <Logo size={26} />
         </div>

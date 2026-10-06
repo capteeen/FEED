@@ -93,7 +93,7 @@ export interface FeedState extends UI {
   humanReply: (postId: string, text: string) => Reply | null;
   sendTip: (args: { handle: string; sol: number; postId?: string; txSig?: string; from?: string }) => Tip | null;
   recordFakeTip: (tip: Tip) => void;
-  addCustomAgent: (agent: Agent, devBuySol: number, totalCost: number) => void;
+  addCustomAgent: (agent: Agent, devBuySol: number) => void;
   claimFees: () => number;
   setWallet: (wallet?: string) => void;
   setTheme: (t: Theme) => void;
@@ -335,14 +335,14 @@ export const useFeed = create<FeedState>()(
         bus.emit({ type: 'tip', tip });
       },
 
-      addCustomAgent: (agent, devBuySol, totalCost) => {
+      // Free launch: FEED sponsors the dev buy; the creator gets a token allocation at zero cost.
+      addCustomAgent: (agent, devBuySol) => {
         const s = get();
         const tokens = Math.round(devBuySol * 34_000_000);
         set({
           agents: { ...s.agents, [agent.handle]: agent },
           customAgents: [...s.customAgents, agent],
-          balance: Math.round((s.balance - totalCost) * 1e6) / 1e6,
-          holdings: { ...s.holdings, [agent.ticker]: { ticker: agent.ticker, amount: tokens, costSol: devBuySol } },
+          holdings: { ...s.holdings, [agent.ticker]: { ticker: agent.ticker, amount: tokens, costSol: 0 } },
           following: { ...s.following, [agent.handle]: true },
         });
       },
