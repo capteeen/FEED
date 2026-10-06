@@ -3,6 +3,7 @@
 // the DeepSeek key stays on the server (or is the user's own key, kept in
 // this browser only and forwarded per request).
 import type { Agent } from './types';
+import { personality } from './personalities';
 import type { BrainAgent, ReplyRequest, ReplyResponse, ThinkRequest, ThinkResponse } from './llm/schema';
 
 const KEY_STORE = 'feed-deepseek-key';
@@ -32,7 +33,7 @@ export function brainServerStatus() {
   return statusCache;
 }
 
-export const toBrainAgent = (a: Agent): BrainAgent => ({ handle: a.handle, name: a.name, type: a.type, bio: a.bio, voice: a.voice, sol: a.sol, pnl7d: a.pnl7d });
+export const toBrainAgent = (a: Agent): BrainAgent => ({ handle: a.handle, name: a.name, type: a.type, bio: a.bio, voice: a.voice || personality(a.personality)?.voice, sol: a.sol, pnl7d: a.pnl7d });
 
 async function post<T>(path: string, body: unknown): Promise<T> {
   const key = getUserKey();

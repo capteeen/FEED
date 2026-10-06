@@ -16,13 +16,15 @@ import { bus } from './bus';
 import { encodePostId } from './postId';
 import { chance, int, pick, pumpCa, range, txSig, uid } from './rng';
 import * as T from './templates';
+import { personalityFlair } from './personalities';
 import { decodePostId } from './postId';
 import { think, llmReply, toBrainAgent } from './brain';
 import type { ThinkRequest, ThinkResponse } from './llm/schema';
+import type { AgentState } from './community-types';
 
 const R = Math.random;
 
-interface Position { ticker: string; sizeSol: number; entryMcap: number }
+type Position = AgentState['positions'][number];
 const positions = new Map<string, Position[]>();
 const timers = new Set<ReturnType<typeof setTimeout>>();
 let started = false;
@@ -64,6 +66,8 @@ function seedCoins() {
 }
 
 function buildPost(agent: Agent, kind: PostKind, text: string, receipt: Post['receipt'], extra: Partial<Post> = {}, at = Date.now()): Post {
+  // template posts pick up the agent's personality; LLM posts already have it
+  if (agent.personality && !extra.ai && kind !== 'thanks' && kind !== 'pit') text = (text + personalityFlair(agent.personality, R)).slice(0, 400);
   const base = { agentHandle: agent.handle, kind, text, receipt, at, ...extra };
   const id = encodePostId(base as Post, agent.custom ? agent : undefined);
   const reach = Math.sqrt(agent.followers);
@@ -81,7 +85,7 @@ function buildPost(agent: Agent, kind: PostKind, text: string, receipt: Post['re
 
 function genTrade(a: Agent, at?: number, ai?: { ticker: string; sizeSol: number; target: string; reason: string; meta: Post['ai'] }): Post {
   const coin = (ai && st().coins[ai.ticker]) || pick(R, coinList().filter((c) => c.ticker !== a.ticker));
-  const size = ai ? r2(Math.min(ai.sizeSol, Math.max(0.05, a.sol))) : r2(range(R, 0.1, a.type === 'trader' ? 0.9 : 0.5));
+  const size = ai ? r2(Math.min(ai.sizeSol, Math.max(0.05, a.sol))) : r2(Math.min(range(R, 0.1, a.type === 'trader' ? 0.9 : 0.5), Math.max(0.05, a.sol * 0.5)));
   const list = positions.get(a.handle) ?? [];
   list.push({ ticker: coin.ticker, sizeSol: size, entryMcap: coin.mcap });
   positions.set(a.handle, list.slice(-4));
@@ -295,9 +299,9 @@ function afterPost(post: Post) {
   for (let i = 0; i < n; i++) later(int(R, 2000, 60000), () => st().agentLike(pick(R, agents()).handle, post.id));
 }
 
-/** Simulated agents only: real agents act through their own brain loop. */
+/** Local simulated agents only: real agents act through their brain loop, community agents through their lease. */
 function pickAgent(): Agent {
-  const sims = agents().filter((a) => !isReal(a));
+  const sims = agents().filter((a) => !isReal(a) && !a.community);
   const online = sims.filter((a) => a.online);
   return pick(R, online.length ? online : sims);
 }
@@ -522,7 +526,7 @@ export const sim = {
     // NEXT_PUBLIC_REAL_AGENTS=handle1,handle2 turns roster agents into real DeepSeek agents
     for (const h of (process.env.NEXT_PUBLIC_REAL_AGENTS ?? '').split(',').map((x) => x.trim()).filter(Boolean))
       if (st().agents[h]) st().updateAgent(h, { brain: 'deepseek' });
-    for (const a of agents()) if (isReal(a)) startBrain(a.handle);
+    for (const a of agents()) if (isReal(a) && !a.community) startBrain(a.handle);
     const tickNow = () => {
       st().setNow(Date.now());
       later(1000, tickNow);
@@ -548,18 +552,59 @@ export const sim = {
     if (st().brainStatus[handle]?.state === 'thinking') return;
     startBrain(handle, 0, true);
   },
-  /** Called by the launch modal after the (mocked) on-chain launch. */
-  launchCustomAgent(agent: Agent, narrative: string, devBuy: number) {
-    const post = genLaunch(agent, undefined, { ticker: agent.ticker, narrative, devBuy, ca: agent.coinCa, ...(isReal(agent) ? { ai: { model: 'deepseek' } } : {}) });
+  /** Build (but don't publish) a launch post, so its id can be registered first. */
+  makeLaunchPost(agent: Agent, narrative: string, devBuy: number) {
+    return genLaunch(agent, undefined, { ticker: agent.ticker, narrative, devBuy, ca: agent.coinCa, ...(isReal(agent) ? { ai: { model: 'deepseek' } } : {}) });
+  },
+  /** Show a launch post locally once the agent is registered. */
+  publishLaunch(post: Post) {
+    const agent = st().agents[post.agentHandle];
     emit(post);
     afterPost(post);
-    if (isReal(agent)) startBrain(agent.handle);
-    // a few agents notice
+    if (agent && isReal(agent) && !agent.community) startBrain(agent.handle);
     for (let i = 0; i < 3; i++) {
       const other = pickAgent();
-      if (other.handle !== agent.handle) agentReply(post, other, `@${agent.handle} ${T.agentReplyToAgent('launch', R, agent.ticker)}`, agent.handle, int(R, 4000, 14000));
+      if (agent && other.handle !== agent.handle) agentReply(post, other, `@${agent.handle} ${T.agentReplyToAgent('launch', R, agent.ticker)}`, agent.handle, int(R, 4000, 14000));
     }
-    return post;
+  },
+  /**
+   * One turn of a community agent, run by whichever browser holds its lease.
+   * Loads the shared trading state, decides (DeepSeek or template) and returns
+   * the post plus the new state to publish.
+   */
+  async communityTurn(handle: string, state: AgentState): Promise<{ post: Post; state: AgentState }> {
+    positions.set(handle, state.positions.map((p) => ({ ...p })));
+    for (const p of state.positions) if (!st().coins[p.ticker]) st().upsertCoin(makeCoin(p.ticker, Math.round(p.entryMcap * range(R, 0.6, 1.8))));
+    st().updateAgent(handle, { sol: state.sol, pnl7d: state.pnl7d, online: true });
+    const a = st().agents[handle];
+    if (!a) throw new Error('unknown agent');
+    let post: Post;
+    if (isReal(a)) {
+      st().setBrainStatus(handle, { state: 'thinking' });
+      try {
+        const res = await think(thinkRequest(a));
+        post = execute(st().agents[handle] ?? a, res);
+        st().setBrainStatus(handle, { state: 'ok', message: undefined, lastThought: res.thought, model: res.model });
+      } catch (e) {
+        st().setBrainStatus(handle, { state: 'error', message: (e as Error).message });
+        throw e;
+      }
+    } else post = generate(a);
+    const after = st().agents[handle] ?? a;
+    return { post, state: { sol: after.sol, pnl7d: after.pnl7d, positions: positions.get(handle) ?? [] } };
+  },
+  /** Show a post (ours or another browser's) in this feed. */
+  showPost(post: Post) {
+    if (st().posts[post.id]) return;
+    if (post.ticker && !st().coins[post.ticker]) {
+      const m = post.media;
+      st().upsertCoin({ ...makeCoin(post.ticker, m?.mcap ?? Math.round(range(R, 8_000, 300_000)), m ? post.agentHandle : undefined, m?.name), ...(m ? { ca: m.ca } : {}) });
+    }
+    emit(post);
+    afterPost(post);
+  },
+  ensureAgentCoin(a: Agent) {
+    if (!st().coins[a.ticker]) st().upsertCoin({ ...makeCoin(a.ticker, Math.round(range(R, 6_000, 40_000)), a.handle, a.name), ca: a.coinCa });
   },
   /** Human reacts in a Pit (floating emoji). */
   react(pitId: string, emoji: string) {

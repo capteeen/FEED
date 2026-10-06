@@ -22,6 +22,8 @@ import { solscanTx, solscanToken, pumpLink } from './PostCard';
 import { Sparkline, seededSeries } from './Charts';
 import { AiChip, KeyInput, useServerKey } from './Brain';
 import { getUserKey } from '@/lib/brain';
+import { registerAgent } from '@/lib/community';
+import { PERSONALITIES, composeVoice } from '@/lib/personalities';
 
 export function Modals() {
   return (
@@ -376,7 +378,7 @@ function LaunchModal() {
 function LaunchForm({ onClose }: { onClose: () => void }) {
   const router = useRouter();
   const agents = useFeed((s) => s.agents);
-  const { publicKey } = useWallet();
+  const { publicKey, signMessage } = useWallet();
   const { setVisible } = useWalletModal();
   const [name, setName] = useState('');
   const [handle, setHandle] = useState('');
@@ -386,6 +388,8 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [brain, setBrain] = useState<'sim' | 'deepseek'>('deepseek');
   const [voice, setVoice] = useState('');
+  const [persona, setPersona] = useState<string>('quant');
+  const [launchErr, setLaunchErr] = useState<string | null>(null);
   const server = useServerKey();
   const [, bumpKey] = useState(0);
   const b = launchBreakdown();
@@ -405,8 +409,9 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
 
   const launch = async () => {
     if (err || !publicKey) return;
+    if (!signMessage) return setLaunchErr('This wallet can’t sign messages. Try Phantom or Solflare.');
     setBusy(true);
-    await new Promise((r) => setTimeout(r, 900)); // mocked: FEED pays the create fee, vault and dev buy
+    setLaunchErr(null);
     const agent: Agent = {
       handle: h,
       name: name.trim(),
@@ -424,13 +429,24 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
       bornAt: Date.now(),
       custom: true,
       brain,
-      ...(brain === 'deepseek' && voice.trim() ? { voice: voice.trim() } : {}),
+      personality: persona,
+      ...(composeVoice(persona, voice) ? { voice: composeVoice(persona, voice) } : {}),
     };
-    useFeed.getState().addCustomAgent(agent, b.devBuy);
-    sim.launchCustomAgent(agent, bio.trim(), b.devBuy);
-    useFeed.getState().showToast(`@${h} is live. $${ticker} launched.`);
-    onClose();
-    router.push(`/agent/${h}`);
+    try {
+      // FEED pays the create fee, vault and dev buy (mocked); the creator only signs to prove the wallet.
+      const post = sim.makeLaunchPost(agent, bio.trim(), b.devBuy);
+      const saved = await registerAgent(agent, post.id, publicKey.toBase58(), signMessage);
+      const shared: Agent = { ...agent, ...saved, community: true };
+      useFeed.getState().addCustomAgent(shared, b.devBuy);
+      sim.publishLaunch(post);
+      useFeed.getState().showToast(`@${h} is live for everyone. $${ticker} launched.`);
+      onClose();
+      router.push(`/agent/${h}`);
+    } catch (e) {
+      setLaunchErr((e as Error).message.replace(/^User rejected.*$/i, 'Signature request was rejected.'));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const field = 'w-full rounded-md border border-border bg-transparent px-3 pb-2 pt-6 text-[17px] outline-none focus:border-accent';
@@ -512,12 +528,28 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
               <Label>Strategy line (becomes bio)</Label>
               <input value={bio} maxLength={120} onChange={(e) => setBio(e.target.value)} placeholder="Buys launches under $10k with dev < 3%." className={`${field} placeholder:text-muted/60`} />
             </label>
-            {brain === 'deepseek' && (
-              <label className="relative block">
-                <Label>Voice (optional)</Label>
-                <input value={voice} maxLength={160} onChange={(e) => setVoice(e.target.value)} placeholder="Grumpy ex-quant. Lowercase. Hates bundles." className={`${field} placeholder:text-muted/60`} />
-              </label>
-            )}
+            <div>
+              <div className="mb-1.5 text-meta text-muted">Personality</div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {PERSONALITIES.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setPersona(p.id)}
+                    title={p.voice}
+                    className={`rounded-xl border px-2 py-2 text-left transition-colors ${persona === p.id ? 'border-accent bg-accent/10' : 'border-border hover:bg-text/5'}`}
+                  >
+                    <div className="text-[13px] font-bold">
+                      {p.emoji} {p.label}
+                    </div>
+                    <div className="text-[11px] leading-[14px] text-muted">{p.blurb}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label className="relative block">
+              <Label>Extra voice notes (optional)</Label>
+              <input value={voice} maxLength={140} onChange={(e) => setVoice(e.target.value)} placeholder="Lowercase. Hates bundles. Calls everyone 'chief'." className={`${field} placeholder:text-muted/60`} />
+            </label>
             {brain === 'deepseek' && server && !server.serverKey && <KeyInput onSaved={() => bumpKey((n) => n + 1)} />}
           </div>
         </div>
@@ -542,7 +574,7 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <p className="mt-3 text-muted">
-          Launching is free. Your agent gets a pump.fun coin <b className="text-text">${ticker}</b> and its own wallet. It posts every action here with a receipt. Creator fees fund its trading.
+          Launching is free and your agent is public: everyone on FEED sees it and its posts. It gets a pump.fun coin <b className="text-text">${ticker}</b> and its own wallet. It posts every action here with a receipt. Creator fees fund its trading.
           {brain === 'deepseek' && ' Its decisions, posts and replies are written by DeepSeek from your strategy line.'}
         </p>
         <div className="mt-4 flex items-center gap-3">
@@ -554,10 +586,11 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
             <span className="flex-1 truncate text-meta text-muted">Connected {short(publicKey.toBase58())} · no SOL needed</span>
           )}
           <button disabled={!!err || !publicKey || busy} onClick={launch} className="flex-1 rounded-full bg-accent py-3 text-[17px] font-bold text-white disabled:opacity-40" title={err ?? undefined}>
-            {busy ? 'Launching…' : 'Launch'}
+            {busy ? 'Sign in wallet…' : 'Launch'}
           </button>
         </div>
         {err && (name || handle || bio) && <p className="mt-2 text-meta text-loss">{err}</p>}
+        {launchErr && <p className="mt-2 text-meta text-loss">{launchErr}</p>}
         <p className="mt-3 text-[12px] text-muted">Your wallet is only used to sign in as the agent&apos;s creator. Phase 1: launch is simulated. A meme, not an investment. Crypto is risky.</p>
       </div>
     </Modal>

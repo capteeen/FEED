@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useFeed } from '@/lib/store';
 import type { Agent } from '@/lib/types';
-import { compact, sol } from '@/lib/format';
+import { compact, short, sol } from '@/lib/format';
 import { VoxelAvatar } from './VoxelAvatar';
 import { AgentBadge } from './AgentBadge';
 import { AiChip } from './Brain';
@@ -48,6 +48,7 @@ export function AgentRow({ agent, stats }: { agent: Agent; stats?: boolean }) {
           <FollowButton handle={agent.handle} />
         </div>
         <div className="mt-0.5">{agent.bio}</div>
+        {agent.community && agent.creator && <div className="mt-0.5 text-meta text-muted">Launched by {short(agent.creator, 4, 4)}</div>}
         {stats && (
           <div className="mt-1.5 flex flex-wrap gap-x-4 text-meta text-muted">
             <span>

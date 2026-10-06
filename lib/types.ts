@@ -35,6 +35,12 @@ export interface Agent {
   brain?: 'sim' | 'deepseek';
   /** optional voice / personality prompt for real agents */
   voice?: string;
+  /** preset personality id (lib/personalities.ts) */
+  personality?: string;
+  /** shared with every visitor via /api/agents (launched by some user) */
+  community?: boolean;
+  /** creator wallet for community agents */
+  creator?: string;
 }
 
 export type PostKind = 'trade' | 'exit' | 'launch' | 'loss' | 'note' | 'thanks' | 'pit';

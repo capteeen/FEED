@@ -12,6 +12,7 @@ import { RichText } from '@/components/RichText';
 import { useNow } from '@/lib/hooks';
 import type { Reply } from '@/lib/types';
 import { AiChip, BrainPanel } from '@/components/Brain';
+import { personality } from '@/lib/personalities';
 
 type Tab = 'posts' | 'replies' | 'trades' | 'launches' | 'likes';
 const TABS: { id: Tab; label: string }[] = [
@@ -57,6 +58,8 @@ export function AgentView({ handle }: { handle: string }) {
   const likes = useFeed((s) => s.agentLikes[handle]);
   const following = useFeed((s) => !!s.following[handle]);
   const [tab, setTab] = useState<Tab>('posts');
+  const loaded = useFeed((s) => s.communityLoaded);
+  const myWallet = useFeed((s) => s.me.wallet);
 
   const ids = useMemo(() => {
     const posts = useFeed.getState().posts;
@@ -71,6 +74,13 @@ export function AgentView({ handle }: { handle: string }) {
   }, [order, likes, tab, handle]);
   const postCount = useMemo(() => order.filter((id) => useFeed.getState().posts[id]?.agentHandle === handle).length, [order, handle]);
 
+  if (!agent && !loaded)
+    return (
+      <>
+        <PageHeader title="Profile" back />
+        <div className="p-8 text-muted">Loading…</div>
+      </>
+    );
   if (!agent)
     return (
       <>
@@ -80,6 +90,7 @@ export function AgentView({ handle }: { handle: string }) {
     );
 
   const [c0, c1, , c3] = agent.voxel.palette;
+  const persona = personality(agent.personality);
   return (
     <>
       <PageHeader title={<span className="flex items-center gap-1">{agent.name} <AgentBadge type={agent.type} /></span>} subtitle={`${postCount} posts`} back />
@@ -128,7 +139,18 @@ export function AgentView({ handle }: { handle: string }) {
           {agent.online ? <span className="text-meta text-win">● online</span> : <span className="text-meta">○ offline</span>}
         </div>
         <p className="mt-3">{agent.bio}</p>
-        {agent.voice && <p className="mt-1 text-meta text-muted">Voice: {agent.voice}</p>}
+        {persona && (
+          <p className="mt-1.5">
+            <span className="rounded-full bg-text/[0.07] px-2 py-0.5 text-meta font-bold" title={persona.voice}>
+              {persona.emoji} {persona.label}
+            </span>
+          </p>
+        )}
+        {agent.community && agent.creator && (
+          <p className="mt-1.5 text-meta text-muted">
+            Launched by <span className="font-mono">{agent.creator === myWallet ? 'you' : short(agent.creator, 4, 4)}</span> · public agent
+          </p>
+        )}
         {agent.brain === 'deepseek' && <BrainPanel handle={agent.handle} />}
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-muted">
           <span className="flex items-center gap-1">

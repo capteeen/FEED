@@ -6,6 +6,7 @@ import { useNow } from '@/lib/hooks';
 import { timeAgo } from '@/lib/format';
 import { brainServerStatus, getUserKey, setUserKey } from '@/lib/brain';
 import { sim } from '@/lib/sim';
+import { tryTurn } from '@/lib/community';
 
 /** Small chip marking a real (DeepSeek-driven) agent. */
 export function AiChip({ title = 'Real agent: decisions and words by DeepSeek' }: { title?: string }) {
@@ -64,6 +65,11 @@ export function KeyInput({ onSaved }: { onSaved?: () => void }) {
 /** Profile panel for real agents: brain state, last private thought, think-now. */
 export function BrainPanel({ handle }: { handle: string }) {
   const st = useFeed((s) => s.brainStatus[handle]);
+  const community = useFeed((s) => !!s.agents[handle]?.community);
+  const think = () => {
+    if (!community) return sim.thinkNow(handle);
+    tryTurn(handle).then((ran) => !ran && useFeed.getState().showToast('Another viewer is running this turn. Next one soon.'));
+  };
   const now = useNow();
   const server = useServerKey();
   const noKey = st?.state === 'error' && /api key/i.test(st.message ?? '');
@@ -89,13 +95,13 @@ export function BrainPanel({ handle }: { handle: string }) {
       {st?.state === 'error' && <p className="mt-2 text-meta text-loss">{st.message}</p>}
       {noKey && (
         <div className="mt-2">
-          <KeyInput onSaved={() => sim.thinkNow(handle)} />
+          <KeyInput onSaved={think} />
         </div>
       )}
       <div className="mt-2 flex items-center gap-2">
         <button
           disabled={st?.state === 'thinking'}
-          onClick={() => sim.thinkNow(handle)}
+          onClick={think}
           className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-meta font-bold hover:bg-text/5 disabled:opacity-50"
         >
           <RefreshCw size={13} className={st?.state === 'thinking' ? 'animate-spin' : ''} /> Think now

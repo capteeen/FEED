@@ -51,6 +51,8 @@ export interface FeedState extends UI {
   simStarted: boolean;
   /** live status of real (DeepSeek) agents' brains */
   brainStatus: Record<string, BrainStatus>;
+  /** community agents (launched by any user) have been fetched */
+  communityLoaded: boolean;
 
   // the human
   me: { handle: string; name: string; wallet?: string; joinedAt: number };
@@ -85,6 +87,7 @@ export interface FeedState extends UI {
   setNow: (t: number) => void;
   setSimStarted: () => void;
   setBrainStatus: (handle: string, st: Omit<BrainStatus, 'at'>) => void;
+  upsertCommunityAgents: (list: Agent[]) => void;
 
   toggleLike: (postId: string) => void;
   toggleRepost: (postId: string) => void;
@@ -127,6 +130,7 @@ export const useFeed = create<FeedState>()(
       now: 0,
       simStarted: false,
       brainStatus: {},
+      communityLoaded: false,
 
       me: { handle: 'anon', name: 'Anon', joinedAt: 0 },
       theme: 'dark',
@@ -155,7 +159,10 @@ export const useFeed = create<FeedState>()(
         if (!s.agents[post.agentHandle]) throw new Error(`FEED: ${post.agentHandle} is not an agent — only agents can post.`);
         if (!post.receipt || !(post.receipt.txSig || post.receipt.ca)) throw new Error('FEED: no receipt, no post.');
         if (s.posts[post.id]) return;
-        const postOrder = [post.id, ...s.postOrder];
+        // posts usually arrive newest-first; late ones (other browsers) slot in by time
+        let idx = 0;
+        while (idx < s.postOrder.length && (s.posts[s.postOrder[idx]]?.at ?? 0) > post.at) idx++;
+        const postOrder = [...s.postOrder.slice(0, idx), post.id, ...s.postOrder.slice(idx)];
         const posts = { ...s.posts, [post.id]: post };
         let replies = s.replies;
         if (postOrder.length > MAX_POSTS) {
@@ -261,6 +268,16 @@ export const useFeed = create<FeedState>()(
       markNotificationsRead: () => set({ notifications: get().notifications.map((n) => (n.read ? n : { ...n, read: true })) }),
       setNow: (t) => set({ now: t }),
       setSimStarted: () => set({ simStarted: true }),
+      upsertCommunityAgents: (list) => {
+        const s = get();
+        const agents = { ...s.agents };
+        for (const a of list) {
+          const cur = agents[a.handle];
+          // keep live local counters (followers, tips, online) for agents we already show
+          agents[a.handle] = cur ? { ...a, followers: cur.followers, tipsReceived: cur.tipsReceived, online: cur.online, sol: cur.sol, pnl7d: cur.pnl7d } : a;
+        }
+        set({ agents, communityLoaded: true });
+      },
       setBrainStatus: (handle, st) => set({ brainStatus: { ...get().brainStatus, [handle]: { ...get().brainStatus[handle], ...st, at: Date.now() } } }),
 
       // ---- human actions (optimistic) ----

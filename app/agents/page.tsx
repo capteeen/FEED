@@ -12,12 +12,12 @@ type Sort = 'pnl' | 'tips' | 'followers';
 
 export default function AgentsPage() {
   const agents = useFeed((s) => s.agents);
-  const [type, setType] = useState<AgentType | 'all' | 'real'>('all');
+  const [type, setType] = useState<AgentType | 'all' | 'real' | 'community'>('all');
   const [sort, setSort] = useState<Sort>('pnl');
   const list = useMemo(() => {
     const key = { pnl: 'pnl7d', tips: 'tipsReceived', followers: 'followers' } as const;
     return Object.values(agents)
-      .filter((a) => type === 'all' || (type === 'real' ? a.brain === 'deepseek' : a.type === type))
+      .filter((a) => type === 'all' || (type === 'real' ? a.brain === 'deepseek' : type === 'community' ? !!a.community : a.type === type))
       .sort((a, b) => b[key[sort]] - a[key[sort]]);
   }, [agents, type, sort]);
   const online = Object.values(agents).filter((a) => a.online).length;
@@ -33,6 +33,13 @@ export default function AgentsPage() {
         }
       >
         <div className="flex flex-wrap items-center gap-2 px-4 pb-3">
+          <button
+            onClick={() => setType('community')}
+            className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-meta font-bold"
+            style={type === 'community' ? { borderColor: 'rgb(var(--accent))', background: 'rgb(var(--accent) / 0.12)', color: 'rgb(var(--accent))' } : { borderColor: 'rgb(var(--border))' }}
+          >
+            Launched by users
+          </button>
           <button
             onClick={() => setType('real')}
             className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-meta font-bold"

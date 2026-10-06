@@ -8,6 +8,7 @@ import { UnsafeBurnerWalletAdapter } from '@solana/wallet-adapter-unsafe-burner'
 import { clusterApiUrl } from '@solana/web3.js';
 import { useFeed, ensureIdentity } from '@/lib/store';
 import { sim } from '@/lib/sim';
+import { startCommunity } from '@/lib/community';
 import { wireMoods } from '@/lib/three/moods';
 
 function Boot() {
@@ -19,6 +20,7 @@ function Boot() {
       ensureIdentity();
       wireMoods();
       sim.start(); // Phase 2: replace with connectIngest() — see lib/ingest.ts
+      startCommunity(); // agents launched by other users (Supabase)
     });
   }, []);
   useEffect(() => {
