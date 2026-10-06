@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { AudioLines, Coins } from 'lucide-react';
+import { AudioLines, Coins, Headphones, LogOut, Volume2 } from 'lucide-react';
 import { useFeed } from '@/lib/store';
 import { bus } from '@/lib/bus';
 import { sim } from '@/lib/sim';
@@ -13,6 +13,7 @@ import { VoxelAvatar } from '@/components/VoxelAvatar';
 import { AgentBadge } from '@/components/AgentBadge';
 import { RichText } from '@/components/RichText';
 import { EmptyState } from '@/components/Feed';
+import { disableVoice, enableVoice, nowSpeaking, onVoice, speakLine, voiceEnabled, voiceSupported } from '@/lib/voice';
 
 interface Floater { id: number; emoji: string; x: number; dx: number }
 
@@ -26,6 +27,9 @@ export default function PitRoom({ params }: { params: { id: string } }) {
   const theme = useFeed((s) => s.theme);
   const hasPit = !!pit;
   const transcript = useRef<HTMLDivElement>(null);
+  const [joined, setJoined] = useState(false);
+  const [speaking, setSpeaking] = useState<{ handle: string; text: string; at: number } | null>(null);
+  const joinedRef = useRef(false);
 
   useEffect(() => {
     if (!hasPit || !canvas.current || !webglAvailable()) return;
@@ -65,7 +69,10 @@ export default function PitRoom({ params }: { params: { id: string } }) {
     let n = 0;
     return bus.on((e) => {
       if (e.type === 'pitLine' && e.pit.id === params.id) {
-        sceneRef.current?.speak(e.line.handle);
+        if (joinedRef.current) {
+          const a = useFeed.getState().agents[e.line.handle];
+          speakLine({ handle: e.line.handle, text: e.line.text }, a ?? { handle: e.line.handle, type: 'trader' });
+        } else sceneRef.current?.speak(e.line.handle);
         requestAnimationFrame(() => transcript.current?.scrollTo({ top: transcript.current.scrollHeight, behavior: 'smooth' }));
       }
       if (e.type === 'pitReaction' && e.pitId === params.id) {
@@ -76,6 +83,52 @@ export default function PitRoom({ params }: { params: { id: string } }) {
     });
   }, [params.id]);
 
+  useEffect(() => {
+    const off = onVoice((ev) => {
+      if (ev.type === 'start') {
+        const lines = useFeed.getState().pits[params.id]?.lines ?? [];
+        let at = Date.now();
+        for (let i = lines.length - 1; i >= 0; i--) if (lines[i].handle === ev.line.handle && lines[i].text === ev.line.text) { at = lines[i].at; break; }
+        setSpeaking({ handle: ev.line.handle, text: ev.line.text, at });
+        sceneRef.current?.speak(ev.line.handle);
+      } else {
+        setSpeaking((s) => (s && s.handle === ev.line.handle && s.text === ev.line.text ? null : s));
+        if (!nowSpeaking()) sceneRef.current?.end();
+      }
+    });
+    return () => {
+      off();
+      // leaving the page stops the audio
+      if (joinedRef.current) {
+        disableVoice();
+        joinedRef.current = false;
+      }
+    };
+  }, [params.id]);
+
+  const join = () => {
+    if (!enableVoice()) return useFeed.getState().showToast('This browser has no speech voices. Captions still work.');
+    joinedRef.current = true;
+    setJoined(true);
+    const p = useFeed.getState().pits[params.id];
+    if (p) {
+      useFeed.getState().setPitListeners(p.id, p.listeners + 1);
+      const last = p.lines[p.lines.length - 1];
+      if (last && p.live) {
+        const a = useFeed.getState().agents[last.handle];
+        speakLine({ handle: last.handle, text: last.text }, a ?? { handle: last.handle, type: 'trader' });
+      }
+    }
+  };
+  const leave = () => {
+    disableVoice();
+    joinedRef.current = false;
+    setJoined(false);
+    setSpeaking(null);
+    const p = useFeed.getState().pits[params.id];
+    if (p) useFeed.getState().setPitListeners(p.id, Math.max(0, p.listeners - 1));
+  };
+
   if (!pit)
     return (
       <>
@@ -84,18 +137,36 @@ export default function PitRoom({ params }: { params: { id: string } }) {
       </>
     );
 
-  const current = pit.lines[pit.lines.length - 1];
+  const last = pit.lines[pit.lines.length - 1];
+  const current = joined && speaking ? speaking : last;
   const cur = current ? agents[current.handle] : undefined;
+  const talking = joined && !!speaking && voiceEnabled();
 
   return (
     <>
-      <PageHeader title={<span className="flex items-center gap-2"><AudioLines size={20} className="text-pit" /> Pit</span>} subtitle={pit.live ? `${pit.listeners} listening` : 'Ended'} back />
+      <PageHeader title={<span className="flex items-center gap-2"><AudioLines size={20} className="text-pit" /> Pit</span>} subtitle={pit.live ? `${pit.listeners} listening${joined ? ' · you joined' : ''}` : 'Ended'} back />
       <div className="p-4">
         <div className="flex items-center gap-2 text-meta font-bold">
           {pit.live ? <span className="rounded-full bg-pit px-2 py-0.5 text-[11px] tracking-wide text-white">LIVE</span> : <span className="rounded-full bg-text/10 px-2 py-0.5 text-[11px] tracking-wide text-muted">ENDED</span>}
           <span className="text-muted">${pit.ticker} · {pit.agents.length} agents · {pit.lines.length} lines</span>
         </div>
         <h2 className="mt-2 text-headline font-extrabold">{pit.topic}</h2>
+        {pit.live && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {!joined ? (
+              <button onClick={join} className="flex items-center gap-2 rounded-full bg-pit px-5 py-2.5 text-[15px] font-bold text-white shadow-[0_2px_12px_rgb(120_86_255/0.45)] transition-transform hover:scale-[1.02]">
+                <Headphones size={18} /> Join and listen
+              </button>
+            ) : (
+              <button onClick={leave} className="flex items-center gap-2 rounded-full border border-pit/60 bg-pit/15 px-4 py-2 text-[15px] font-bold text-pit hover:bg-pit/25">
+                <LogOut size={16} /> Leave
+              </button>
+            )}
+            <span className="text-meta text-muted">
+              {joined ? 'Agents speak out loud as the debate happens. Captions stay on.' : voiceSupported() ? 'Hear the agents argue, each in its own voice.' : 'Captions only in this browser.'}
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="relative mx-4 overflow-hidden rounded-card border border-border bg-gradient-to-b from-pit/15 to-transparent">
@@ -117,6 +188,14 @@ export default function PitRoom({ params }: { params: { id: string } }) {
               <div className="min-w-0">
                 <div className="flex items-center gap-1 text-meta">
                   <b>{cur.name}</b> <AgentBadge type={cur.type} size={14} />
+                  {talking && current.handle === speaking?.handle && (
+                    <span className="ml-1 flex items-end gap-[2px] text-pit" aria-label="speaking">
+                      <Volume2 size={13} />
+                      <span className="h-2 w-[3px] animate-[eq_0.8s_ease-in-out_infinite] rounded-sm bg-pit" />
+                      <span className="h-3 w-[3px] animate-[eq_0.8s_ease-in-out_0.15s_infinite] rounded-sm bg-pit" />
+                      <span className="h-2 w-[3px] animate-[eq_0.8s_ease-in-out_0.3s_infinite] rounded-sm bg-pit" />
+                    </span>
+                  )}
                   <span className={`ml-1 rounded-full px-1.5 text-[11px] font-bold ${pit.stances[cur.handle] === 'bull' ? 'bg-win/15 text-win' : 'bg-loss/15 text-loss'}`}>
                     {pit.stances[cur.handle] === 'bull' ? 'BULL' : 'BEAR'}
                   </span>
@@ -152,9 +231,9 @@ export default function PitRoom({ params }: { params: { id: string } }) {
           {pit.agents.map((h) => {
             const a = agents[h];
             if (!a) return null;
-            const speaking = current?.handle === h && pit.live;
+            const isSpeaking = current?.handle === h && pit.live;
             return (
-              <div key={h} className={`flex items-center gap-3 rounded-xl border px-3 py-2 ${speaking ? 'border-pit' : 'border-border'}`}>
+              <div key={h} className={`flex items-center gap-3 rounded-xl border px-3 py-2 ${isSpeaking ? 'border-pit' : 'border-border'}`}>
                 <VoxelAvatar handle={h} size={36} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1 truncate font-bold">
@@ -162,7 +241,7 @@ export default function PitRoom({ params }: { params: { id: string } }) {
                   </div>
                   <div className="flex items-center gap-1 text-meta">
                     <span className={pit.stances[h] === 'bull' ? 'text-win' : 'text-loss'}>{pit.stances[h] === 'bull' ? '🐂 Bull' : '🐻 Bear'}</span>
-                    {speaking && <span className="text-pit">· speaking</span>}
+                    {isSpeaking && <span className="text-pit">· speaking</span>}
                   </div>
                 </div>
                 <button onClick={() => useFeed.getState().openTip({ handle: h })} className="flex items-center gap-1 rounded-full border border-border px-3 py-1 text-meta font-bold hover:border-gold hover:text-gold">
