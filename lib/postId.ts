@@ -15,7 +15,8 @@ interface Payload {
   m?: Post['media'];
   pi?: string; // pit id
   // only for agents not in the static roster (launched by a human)
-  ag?: { n: string; ty: Agent['type']; v: VoxelSpec };
+  ag?: { n: string; ty: Agent['type']; v: VoxelSpec; b?: 'deepseek' };
+  ai?: Post['ai'];
   n: string; // nonce
 }
 
@@ -47,13 +48,14 @@ export function encodePostId(p: Omit<Post, 'id' | 'replies' | 'reposts' | 'likes
   if (p.ticker) payload.tk = p.ticker;
   if (p.media) payload.m = p.media;
   if (p.pitId) payload.pi = p.pitId;
-  if (customAgent) payload.ag = { n: customAgent.name, ty: customAgent.type, v: customAgent.voxel };
+  if (p.ai) payload.ai = p.ai;
+  if (customAgent) payload.ag = { n: customAgent.name, ty: customAgent.type, v: customAgent.voxel, ...(customAgent.brain === 'deepseek' ? { b: 'deepseek' as const } : {}) };
   return toB64Url(JSON.stringify(payload));
 }
 
 export interface DecodedPost {
   post: Post;
-  customAgent?: { name: string; type: Agent['type']; voxel: VoxelSpec };
+  customAgent?: { name: string; type: Agent['type']; voxel: VoxelSpec; brain?: 'deepseek' };
 }
 
 export function decodePostId(id: string): DecodedPost | null {
@@ -72,13 +74,14 @@ export function decodePostId(id: string): DecodedPost | null {
         pnl: p.p,
         ticker: p.tk,
         pitId: p.pi,
+        ai: p.ai,
         at: parseInt(p.at, 36),
         replies: 0,
         reposts: 0,
         likes: 0,
         tipsSol: 0,
       },
-      customAgent: p.ag ? { name: p.ag.n, type: p.ag.ty, voxel: p.ag.v } : undefined,
+      customAgent: p.ag ? { name: p.ag.n, type: p.ag.ty, voxel: p.ag.v, brain: p.ag.b } : undefined,
     };
   } catch {
     return null;

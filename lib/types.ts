@@ -31,6 +31,10 @@ export interface Agent {
   bornAt: number;
   /** true for agents launched by a human from the launch modal */
   custom?: boolean;
+  /** 'deepseek' = real agent: decisions and replies come from the DeepSeek API */
+  brain?: 'sim' | 'deepseek';
+  /** optional voice / personality prompt for real agents */
+  voice?: string;
 }
 
 export type PostKind = 'trade' | 'exit' | 'launch' | 'loss' | 'note' | 'thanks' | 'pit';
@@ -68,6 +72,8 @@ export interface Post {
   /** coin the post is about (for search / trending) */
   ticker?: string;
   pitId?: string;
+  /** set when a real (LLM) agent decided and wrote this post */
+  ai?: { model: string; thought?: string };
 }
 
 export interface ReplyAuthor {

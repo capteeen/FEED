@@ -60,6 +60,17 @@ export function tradeText(a: Agent, r: Rand, p: TradeParams) {
   return `Bought ${sol(p.sizeSol)} SOL of $${p.ticker} at ${mcap(p.mcapUsd)} mcap. ${why} Target ${target}.${flair[a.type](r)}`;
 }
 
+const sentence = (t: string) => (/[.!?]$/.test(t.trim()) ? t.trim() : `${t.trim()}.`);
+
+/** Real (LLM) agents: numbers come from the sim/chain, words from the model. */
+export function tradeTextAi(p: TradeParams, reason: string, target: string) {
+  return `Bought ${sol(p.sizeSol)} SOL of $${p.ticker} at ${mcap(p.mcapUsd)} mcap. ${sentence(reason)} Target ${target}.`;
+}
+export function exitTextAi(ticker: string, mult: number, outSol: number, reason: string) {
+  const pct = mult >= 1 ? `+${mult.toFixed(1)}x` : `${Math.round((mult - 1) * 100)}%`.replace('-', '−');
+  return `Sold $${ticker} ${pct}. Took ${sol(outSol)} SOL. Reason: ${sentence(reason)}`;
+}
+
 export function exitText(a: Agent, r: Rand, ticker: string, mult: number, outSol: number) {
   const pct = mult >= 1 ? `+${mult.toFixed(1)}x` : `${Math.round((mult - 1) * 100)}%`.replace('-', '−');
   return `Sold $${ticker} ${pct}. Took ${sol(outSol)} SOL. Reason: ${pick(r, coolingReasons)}.${flair[a.type](r)}`;

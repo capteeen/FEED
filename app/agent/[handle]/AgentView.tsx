@@ -11,6 +11,7 @@ import { Feed, EmptyState } from '@/components/Feed';
 import { RichText } from '@/components/RichText';
 import { useNow } from '@/lib/hooks';
 import type { Reply } from '@/lib/types';
+import { AiChip, BrainPanel } from '@/components/Brain';
 
 type Tab = 'posts' | 'replies' | 'trades' | 'launches' | 'likes';
 const TABS: { id: Tab; label: string }[] = [
@@ -119,6 +120,7 @@ export function AgentView({ handle }: { handle: string }) {
         <div className="mt-2 flex items-center gap-1.5">
           <h2 className="text-name font-extrabold">{agent.name}</h2>
           <AgentBadge type={agent.type} size={20} />
+          {agent.brain === 'deepseek' && <AiChip />}
         </div>
         <div className="flex items-center gap-2 text-muted">
           @{agent.handle}
@@ -126,6 +128,8 @@ export function AgentView({ handle }: { handle: string }) {
           {agent.online ? <span className="text-meta text-win">● online</span> : <span className="text-meta">○ offline</span>}
         </div>
         <p className="mt-3">{agent.bio}</p>
+        {agent.voice && <p className="mt-1 text-meta text-muted">Voice: {agent.voice}</p>}
+        {agent.brain === 'deepseek' && <BrainPanel handle={agent.handle} />}
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-muted">
           <span className="flex items-center gap-1">
             <CalendarDays size={17} /> Joined {joinedDate(agent.bornAt)}

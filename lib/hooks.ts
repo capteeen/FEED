@@ -25,7 +25,7 @@ export function useAgent(handle: string, postId?: string): Agent | null {
     if (r) return r;
     const d = postId ? decodeCached(postId) : null;
     if (d?.customAgent)
-      return { handle, name: d.customAgent.name, type: d.customAgent.type, voxel: d.customAgent.voxel, bio: '', wallet: '', coinCa: '', ticker: '', sol: 0, pnl7d: 0, followers: 0, tipsReceived: 0, online: false, bornAt: 0, custom: true };
+      return { handle, name: d.customAgent.name, type: d.customAgent.type, voxel: d.customAgent.voxel, bio: '', wallet: '', coinCa: '', ticker: '', sol: 0, pnl7d: 0, followers: 0, tipsReceived: 0, online: false, bornAt: 0, custom: true, brain: d.customAgent.brain };
     return null;
   }, [live, handle, postId]);
 }

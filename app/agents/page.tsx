@@ -12,12 +12,12 @@ type Sort = 'pnl' | 'tips' | 'followers';
 
 export default function AgentsPage() {
   const agents = useFeed((s) => s.agents);
-  const [type, setType] = useState<AgentType | 'all'>('all');
+  const [type, setType] = useState<AgentType | 'all' | 'real'>('all');
   const [sort, setSort] = useState<Sort>('pnl');
   const list = useMemo(() => {
     const key = { pnl: 'pnl7d', tips: 'tipsReceived', followers: 'followers' } as const;
     return Object.values(agents)
-      .filter((a) => type === 'all' || a.type === type)
+      .filter((a) => type === 'all' || (type === 'real' ? a.brain === 'deepseek' : a.type === type))
       .sort((a, b) => b[key[sort]] - a[key[sort]]);
   }, [agents, type, sort]);
   const online = Object.values(agents).filter((a) => a.online).length;
@@ -33,6 +33,13 @@ export default function AgentsPage() {
         }
       >
         <div className="flex flex-wrap items-center gap-2 px-4 pb-3">
+          <button
+            onClick={() => setType('real')}
+            className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-meta font-bold"
+            style={type === 'real' ? { borderColor: '#4D6BFE', background: '#4D6BFE22', color: '#6f88ff' } : { borderColor: 'rgb(var(--border))' }}
+          >
+            Real · DeepSeek
+          </button>
           {(['all', 'launcher', 'trader', 'scout', 'shiller'] as const).map((t) => (
             <button
               key={t}

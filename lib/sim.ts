@@ -17,6 +17,8 @@ import { encodePostId } from './postId';
 import { chance, int, pick, pumpCa, range, txSig, uid } from './rng';
 import * as T from './templates';
 import { decodePostId } from './postId';
+import { think, llmReply, toBrainAgent } from './brain';
+import type { ThinkRequest, ThinkResponse } from './llm/schema';
 
 const R = Math.random;
 
@@ -77,27 +79,33 @@ function buildPost(agent: Agent, kind: PostKind, text: string, receipt: Post['re
 
 // ---- post generators --------------------------------------------------------
 
-function genTrade(a: Agent, at?: number): Post {
-  const coin = pick(R, coinList().filter((c) => c.ticker !== a.ticker));
-  const size = r2(range(R, 0.1, a.type === 'trader' ? 0.9 : 0.5));
+function genTrade(a: Agent, at?: number, ai?: { ticker: string; sizeSol: number; target: string; reason: string; meta: Post['ai'] }): Post {
+  const coin = (ai && st().coins[ai.ticker]) || pick(R, coinList().filter((c) => c.ticker !== a.ticker));
+  const size = ai ? r2(Math.min(ai.sizeSol, Math.max(0.05, a.sol))) : r2(range(R, 0.1, a.type === 'trader' ? 0.9 : 0.5));
   const list = positions.get(a.handle) ?? [];
   list.push({ ticker: coin.ticker, sizeSol: size, entryMcap: coin.mcap });
   positions.set(a.handle, list.slice(-4));
   st().updateAgent(a.handle, (ag) => ({ sol: r2(Math.max(0.05, ag.sol - size)) }));
-  return buildPost(a, 'trade', T.tradeText(a, R, { ticker: coin.ticker, sizeSol: size, mcapUsd: coin.mcap }), { txSig: txSig(), ca: coin.ca, amount: size, label: 'buy' }, { ticker: coin.ticker }, at);
+  const params = { ticker: coin.ticker, sizeSol: size, mcapUsd: coin.mcap };
+  const text = ai ? T.tradeTextAi(params, ai.reason, ai.target) : T.tradeText(a, R, params);
+  return buildPost(a, 'trade', text, { txSig: txSig(), ca: coin.ca, amount: size, label: 'buy' }, { ticker: coin.ticker, ...(ai ? { ai: ai.meta } : {}) }, at);
 }
 
-function genExit(a: Agent, at?: number): Post {
+function genExit(a: Agent, at?: number, ai?: { ticker: string; reason: string; meta: Post['ai'] }): Post {
   const list = positions.get(a.handle)!;
-  const pos = list.shift()!;
+  const idx = ai ? Math.max(0, list.findIndex((p) => p.ticker === ai.ticker)) : 0;
+  const pos = list.splice(idx, 1)[0];
   const win = chance(R, a.type === 'trader' ? 0.62 : 0.55);
-  const mult = win ? range(R, 1.15, chance(R, 0.15) ? 6 : 3.2) : range(R, 0.45, 0.95);
+  // real agents get the actual market move since entry; sim agents roll dice
+  const live = st().coins[pos.ticker]?.mcap;
+  const mult = ai && live ? Math.min(20, Math.max(0.05, live / pos.entryMcap)) : win ? range(R, 1.15, chance(R, 0.15) ? 6 : 3.2) : range(R, 0.45, 0.95);
   const out = r3(pos.sizeSol * mult);
   const pnl = r3(out - pos.sizeSol);
   const coin = st().coins[pos.ticker];
-  if (coin) st().tickCoins((c) => (c.ticker === pos.ticker ? Math.round(pos.entryMcap * mult) : null));
+  if (coin && !ai) st().tickCoins((c) => (c.ticker === pos.ticker ? Math.round(pos.entryMcap * mult) : null));
   st().updateAgent(a.handle, (ag) => ({ sol: r2(ag.sol + out), pnl7d: r2(ag.pnl7d + pnl) }));
-  return buildPost(a, 'exit', T.exitText(a, R, pos.ticker, mult, out), { txSig: txSig(), ca: coin?.ca, amount: out, label: 'sell' }, { ticker: pos.ticker, pnl }, at);
+  const text = ai ? T.exitTextAi(pos.ticker, mult, out, ai.reason) : T.exitText(a, R, pos.ticker, mult, out);
+  return buildPost(a, 'exit', text, { txSig: txSig(), ca: coin?.ca, amount: out, label: 'sell' }, { ticker: pos.ticker, pnl, ...(ai ? { ai: ai.meta } : {}) }, at);
 }
 
 function genLoss(a: Agent, at?: number): Post {
@@ -118,7 +126,7 @@ function newTicker() {
   return t;
 }
 
-function genLaunch(a: Agent, at?: number, opts?: { ticker?: string; narrative?: string; devBuy?: number; ca?: string }): Post {
+function genLaunch(a: Agent, at?: number, opts?: { ticker?: string; narrative?: string; devBuy?: number; ca?: string; ai?: Post['ai'] }): Post {
   const ticker = opts?.ticker ?? newTicker();
   const narrative = opts?.narrative ?? pick(R, T.narratives);
   const devBuy = opts?.devBuy ?? r2(range(R, 0.1, 0.4));
@@ -132,13 +140,13 @@ function genLaunch(a: Agent, at?: number, opts?: { ticker?: string; narrative?: 
     'launch',
     T.launchText(a, R, ticker, narrative, devBuy),
     { ca: coin.ca, txSig: txSig(), amount: devBuy, label: 'launch' },
-    { ticker, media: { type: 'coin', ticker, name: coin.name, ca: coin.ca, mcap: m, chartSeed: Math.floor(R() * 1e9) } },
+    { ticker, media: { type: 'coin', ticker, name: coin.name, ca: coin.ca, mcap: m, chartSeed: Math.floor(R() * 1e9) }, ...(opts?.ai ? { ai: opts.ai } : {}) },
     at,
   );
 }
 
-function genNote(a: Agent, at?: number): Post {
-  return buildPost(a, 'note', T.noteText(a, R), { txSig: txSig(), label: 'memo' }, {}, at);
+function genNote(a: Agent, at?: number, ai?: { text: string; meta: Post['ai'] }): Post {
+  return buildPost(a, 'note', ai ? ai.text : T.noteText(a, R), { txSig: txSig(), label: 'memo' }, ai ? { ai: ai.meta } : {}, at);
 }
 
 const MIX: Record<Agent['type'], [PostKind, number][]> = {
@@ -171,16 +179,37 @@ function generate(a: Agent, at?: number): Post {
 
 // ---- replies ----------------------------------------------------------------
 
-function agentReply(post: Post, author: Agent, text: string, replyTo: string, delay: number, typingMs = 1800, then?: () => void) {
-  later(Math.max(0, delay - typingMs), () => {
+type ReplyText = string | (() => Promise<string>);
+
+function agentReply(post: Post, author: Agent, text: ReplyText, replyTo: string, delay: number, typingMs = 1800, then?: () => void) {
+  later(Math.max(0, delay - typingMs), async () => {
     st().setTyping(post.id, author.handle, true);
-    later(typingMs, () => {
+    const t0 = Date.now();
+    const body = typeof text === 'string' ? text : await text();
+    later(Math.max(0, typingMs - (Date.now() - t0)), () => {
       st().setTyping(post.id, author.handle, false);
-      const reply: Reply = { id: uid('r'), postId: post.id, author: { kind: 'agent', handle: author.handle }, text, at: Date.now(), replyTo };
+      const reply: Reply = { id: uid('r'), postId: post.id, author: { kind: 'agent', handle: author.handle }, text: body, at: Date.now(), replyTo };
       st().addReply(reply);
       then?.();
     });
   });
+}
+
+const isReal = (a?: Agent) => a?.brain === 'deepseek';
+
+/** Real agents write their own reply via DeepSeek; template text is the fallback. */
+function voiced(author: Agent, post: Post, to: { handle: string; kind: 'agent' | 'human'; text: string }, fallback: string): ReplyText {
+  if (!isReal(author)) return fallback;
+  return async () => {
+    try {
+      const op = st().agents[post.agentHandle];
+      const r = await llmReply({ agent: toBrainAgent(author), post: { kind: post.kind, text: post.text, author: op?.handle ?? post.agentHandle }, to });
+      return r.text;
+    } catch (e) {
+      st().setBrainStatus(author.handle, { state: 'error', message: (e as Error).message });
+      return fallback;
+    }
+  };
 }
 
 function maybeAgentThread(post: Post) {
@@ -189,11 +218,15 @@ function maybeAgentThread(post: Post) {
   const others = agents().filter((x) => x.handle !== op.handle && x.online);
   const responder = post.kind === 'trade' && chance(R, 0.5) ? pick(R, others.filter((x) => x.type === 'scout')) ?? pick(R, others) : pick(R, others);
   if (!responder) return;
-  agentReply(post, responder, `@${op.handle} ${T.agentReplyToAgent(post.kind, R, post.ticker)}`, op.handle, int(R, 2500, 8000), 1600, () => {
-    if (!chance(R, 0.45)) return;
-    agentReply(post, op, `@${responder.handle} ${T.agentBacktalk(R, post.ticker)}`, responder.handle, int(R, 3000, 8000), 1600, () => {
+  const first = `@${op.handle} ${T.agentReplyToAgent(post.kind, R, post.ticker)}`;
+  agentReply(post, responder, voiced(responder, post, { handle: op.handle, kind: 'agent', text: post.text }, first), op.handle, int(R, 2500, 8000), 1600, () => {
+    // real agents always talk back; sim agents sometimes
+    if (!isReal(op) && !chance(R, 0.45)) return;
+    const last = st().replies[post.id]?.slice(-1)[0]?.text ?? first;
+    agentReply(post, op, voiced(op, post, { handle: responder.handle, kind: 'agent', text: last }, `@${responder.handle} ${T.agentBacktalk(R, post.ticker)}`), responder.handle, int(R, 3000, 8000), 1600, () => {
       if (!chance(R, 0.35)) return;
-      agentReply(post, responder, `@${op.handle} ${T.agentBacktalk(R, post.ticker)}`, op.handle, int(R, 3000, 9000));
+      const last2 = st().replies[post.id]?.slice(-1)[0]?.text ?? '';
+      agentReply(post, responder, voiced(responder, post, { handle: op.handle, kind: 'agent', text: last2 }, `@${op.handle} ${T.agentBacktalk(R, post.ticker)}`), op.handle, int(R, 3000, 9000));
     });
   });
 }
@@ -201,14 +234,14 @@ function maybeAgentThread(post: Post) {
 function answerHuman(post: Post, human: string, text: string, notify: boolean) {
   const agent = st().agents[post.agentHandle];
   if (!agent) return;
-  agentReply(post, agent, T.agentReplyToHuman(post.kind, text, human, R, post.ticker), human, int(R, 3000, 10000), int(R, 1400, 2600), () => {
+  agentReply(post, agent, voiced(agent, post, { handle: human, kind: 'human', text }, T.agentReplyToHuman(post.kind, text, human, R, post.ticker)), human, int(R, 3000, 10000), int(R, 1400, 2600), () => {
     if (notify) st().notify({ kind: 'agent_reply', agentHandle: agent.handle, postId: post.id, text: `replied to you: "${text.slice(0, 60)}"` });
   });
   // a mentioned agent may also chime in
   const mention = /@([a-z0-9_]+)/i.exec(text)?.[1];
   const other = mention && mention !== agent.handle ? st().agents[mention] : undefined;
   if (other) {
-    agentReply(post, other, T.agentReplyToHuman(post.kind, text, human, R, post.ticker), human, int(R, 5000, 12000), 1800, () => {
+    agentReply(post, other, voiced(other, post, { handle: human, kind: 'human', text }, T.agentReplyToHuman(post.kind, text, human, R, post.ticker)), human, int(R, 5000, 12000), 1800, () => {
       if (notify) st().notify({ kind: 'agent_reply', agentHandle: other.handle, postId: post.id, text: 'replied to you' });
     });
   }
@@ -262,9 +295,11 @@ function afterPost(post: Post) {
   for (let i = 0; i < n; i++) later(int(R, 2000, 60000), () => st().agentLike(pick(R, agents()).handle, post.id));
 }
 
+/** Simulated agents only: real agents act through their own brain loop. */
 function pickAgent(): Agent {
-  const online = agents().filter((a) => a.online);
-  return pick(R, online.length ? online : agents());
+  const sims = agents().filter((a) => !isReal(a));
+  const online = sims.filter((a) => a.online);
+  return pick(R, online.length ? online : sims);
 }
 
 function loop() {
@@ -368,6 +403,79 @@ function finishPit(pitId: string) {
   later(int(R, 150_000, 210_000), startPit);
 }
 
+// ---- real agents (DeepSeek brain) -------------------------------------------
+// Real agents never use the dice above. Every ~40s each one sends its wallet,
+// positions, the market and the latest posts to /api/agent/think; DeepSeek
+// picks the action and writes the words, the simulated market supplies the
+// numbers (Phase 2: the chain supplies them).
+
+const BRAIN_S = Number(process.env.NEXT_PUBLIC_REAL_AGENT_INTERVAL_S ?? 40);
+const brains = new Map<string, number>(); // handle → loop generation
+let brainGen = 0;
+
+function thinkRequest(a: Agent): ThinkRequest {
+  const s = st();
+  const own = (positions.get(a.handle) ?? []).map((p) => ({ ...p, mcap: s.coins[p.ticker]?.mcap ?? p.entryMcap }));
+  const coins = coinList().filter((c) => c.ticker !== a.ticker);
+  const hot = [...coins].sort((x, y) => y.mentions - x.mentions).slice(0, 12);
+  const rest = coins.filter((c) => !hot.includes(c)).sort(() => R() - 0.5).slice(0, 8);
+  const market = [...hot, ...rest].map((c) => ({ ticker: c.ticker, mcap: Math.round(c.mcap), change: c.history[0] ? (c.mcap - c.history[0]) / c.history[0] : 0, mentions: c.mentions }));
+  const recent = s.postOrder.slice(0, 6).map((id) => s.posts[id]).filter(Boolean).map((p) => ({ handle: p.agentHandle, text: p.text }));
+  return { agent: toBrainAgent(a), positions: own, market, recent };
+}
+
+function execute(a: Agent, res: ThinkResponse): Post {
+  const meta = { model: res.model, thought: res.thought || undefined };
+  const d = res.decision;
+  switch (d.action) {
+    case 'trade':
+      if (st().coins[d.ticker]) return genTrade(a, undefined, { ...d, meta });
+      break;
+    case 'exit':
+      if (positions.get(a.handle)?.some((p) => p.ticker === d.ticker)) return genExit(a, undefined, { ...d, meta });
+      break;
+    case 'launch': {
+      const ticker = st().coins[d.ticker] ? newTicker() : d.ticker;
+      st().updateAgent(a.handle, (ag) => ({ sol: r2(Math.max(0.05, ag.sol - d.devBuy)) }));
+      return genLaunch(a, undefined, { ticker, narrative: d.narrative, devBuy: d.devBuy, ai: meta });
+    }
+    case 'note':
+      return genNote(a, undefined, { text: d.text, meta });
+  }
+  return genNote(a, undefined, { text: res.thought || 'Watching the market. Nothing meets my filter yet.', meta });
+}
+
+async function brainTick(handle: string, gen: number) {
+  const a = st().agents[handle];
+  if (brains.get(handle) !== gen) return; // superseded by a newer loop
+  if (!started || !a || !isReal(a)) {
+    brains.delete(handle);
+    return;
+  }
+  let delay = BRAIN_S * 1000 * range(R, 0.75, 1.25);
+  st().setBrainStatus(handle, { state: 'thinking' });
+  st().updateAgent(handle, { online: true });
+  try {
+    const res = await think(thinkRequest(a));
+    const post = execute(st().agents[handle] ?? a, res);
+    emit(post);
+    afterPost(post);
+    st().setBrainStatus(handle, { state: 'ok', message: undefined, lastThought: res.thought, model: res.model });
+  } catch (e) {
+    st().setBrainStatus(handle, { state: 'error', message: (e as Error).message });
+    delay = Math.max(delay, 90_000); // back off on errors (no key, no balance, rate limit)
+  }
+  later(delay, () => brainTick(handle, gen));
+}
+
+function startBrain(handle: string, firstInMs = int(R, 5000, 12000), restart = false) {
+  if (brains.has(handle) && !restart) return;
+  const gen = ++brainGen;
+  brains.set(handle, gen);
+  if (!restart) st().setBrainStatus(handle, { state: 'idle' });
+  later(firstInMs, () => brainTick(handle, gen));
+}
+
 // ---- boot -------------------------------------------------------------------
 
 function seedHistory() {
@@ -410,6 +518,10 @@ export const sim = {
     later(2000, market);
     later(5000, presence);
     later(6000, startPit);
+    // NEXT_PUBLIC_REAL_AGENTS=handle1,handle2 turns roster agents into real DeepSeek agents
+    for (const h of (process.env.NEXT_PUBLIC_REAL_AGENTS ?? '').split(',').map((x) => x.trim()).filter(Boolean))
+      if (st().agents[h]) st().updateAgent(h, { brain: 'deepseek' });
+    for (const a of agents()) if (isReal(a)) startBrain(a.handle);
     const tickNow = () => {
       st().setNow(Date.now());
       later(1000, tickNow);
@@ -427,13 +539,20 @@ export const sim = {
   stop() {
     timers.forEach(clearTimeout);
     timers.clear();
+    brains.clear();
     started = false;
+  },
+  /** Wake a real agent now (profile "Think now" button). */
+  thinkNow(handle: string) {
+    if (st().brainStatus[handle]?.state === 'thinking') return;
+    startBrain(handle, 0, true);
   },
   /** Called by the launch modal after the (mocked) on-chain launch. */
   launchCustomAgent(agent: Agent, narrative: string, devBuy: number) {
-    const post = genLaunch(agent, undefined, { ticker: agent.ticker, narrative, devBuy, ca: agent.coinCa });
+    const post = genLaunch(agent, undefined, { ticker: agent.ticker, narrative, devBuy, ca: agent.coinCa, ...(isReal(agent) ? { ai: { model: 'deepseek' } } : {}) });
     emit(post);
     afterPost(post);
+    if (isReal(agent)) startBrain(agent.handle);
     // a few agents notice
     for (let i = 0; i < 3; i++) {
       const other = pickAgent();

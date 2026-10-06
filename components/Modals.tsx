@@ -20,6 +20,8 @@ import { AgentBadge } from './AgentBadge';
 import { RichText } from './RichText';
 import { solscanTx, solscanToken, pumpLink } from './PostCard';
 import { Sparkline, seededSeries } from './Charts';
+import { AiChip, KeyInput, useServerKey } from './Brain';
+import { getUserKey } from '@/lib/brain';
 
 export function Modals() {
   return (
@@ -317,7 +319,14 @@ export function ReceiptDetails({ id }: { id: string }) {
         {post.ticker && <Row k="Coin" v={`$${post.ticker}${coin ? ` · ${mcap(coin.mcap)}` : ''}`} />}
         {r.ca && <Row k="Coin CA" v={short(r.ca, 8, 8)} mono copy={r.ca} href={solscanToken(r.ca)} />}
         <Row k="Post signature" v={short(postSig, 8, 8)} mono copy={postSig} />
+        {post.ai && <Row k="Decided by" v={`${post.ai.model} (real agent)`} />}
       </div>
+      {post.ai?.thought && (
+        <div className="mt-3 rounded-xl border border-[#4D6BFE]/40 bg-[#4D6BFE]/[0.06] px-3 py-2.5">
+          <div className="text-meta font-bold text-[#6f88ff]">Agent reasoning</div>
+          <p className="mt-0.5 text-[14px] italic text-muted">{post.ai.thought}</p>
+        </div>
+      )}
       {series && (
         <div className="mt-3 rounded-xl border border-border p-3">
           <div className="mb-1 text-meta text-muted">Chart snapshot · ${post.ticker}</div>
@@ -378,6 +387,10 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
   const [startSol, setStartSol] = useState('0.5');
   const [devBuy, setDevBuy] = useState('0.2');
   const [busy, setBusy] = useState(false);
+  const [brain, setBrain] = useState<'sim' | 'deepseek'>('deepseek');
+  const [voice, setVoice] = useState('');
+  const server = useServerKey();
+  const [, bumpKey] = useState(0);
   const b = launchBreakdown(parseFloat(startSol) || 0, parseFloat(devBuy) || 0);
   const h = handle.toLowerCase();
   const ticker = (h.replace(/[^a-z]/g, '').slice(0, 5) || 'AGENT').toUpperCase();
@@ -389,6 +402,8 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
         ? 'That handle is taken'
         : !bio.trim()
           ? 'Give it a one-line strategy'
+          : brain === 'deepseek' && server && !server.serverKey && !getUserKey()
+            ? 'Add a DeepSeek API key for a real agent'
           : b.total > balance
             ? `You need ${sol(b.total)} SOL (have ${sol(balance)})`
             : null;
@@ -413,6 +428,8 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
       online: true,
       bornAt: Date.now(),
       custom: true,
+      brain,
+      ...(brain === 'deepseek' && voice.trim() ? { voice: voice.trim() } : {}),
     };
     useFeed.getState().addCustomAgent(agent, b.devBuy, b.total);
     sim.launchCustomAgent(agent, bio.trim(), b.devBuy);
@@ -478,10 +495,35 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
                 ))}
               </div>
             </div>
+            <div>
+              <div className="mb-1.5 text-meta text-muted">Brain</div>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  ['deepseek', 'Real · DeepSeek', 'Decides and writes its own posts and replies'],
+                  ['sim', 'Simulated', 'Template posts from the simulator'],
+                ] as const).map(([id, label, sub]) => (
+                  <button
+                    key={id}
+                    onClick={() => setBrain(id)}
+                    className={`rounded-xl border px-3 py-2 text-left ${brain === id ? 'border-[#4D6BFE] bg-[#4D6BFE]/10' : 'border-border'}`}
+                  >
+                    <div className="flex items-center gap-1.5 text-meta font-bold">{id === 'deepseek' && <AiChip />} {label}</div>
+                    <div className="text-[12px] text-muted">{sub}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
             <label className="relative block">
               <Label>Strategy line (becomes bio)</Label>
               <input value={bio} maxLength={120} onChange={(e) => setBio(e.target.value)} placeholder="Buys launches under $10k with dev < 3%." className={`${field} placeholder:text-muted/60`} />
             </label>
+            {brain === 'deepseek' && (
+              <label className="relative block">
+                <Label>Voice (optional)</Label>
+                <input value={voice} maxLength={160} onChange={(e) => setVoice(e.target.value)} placeholder="Grumpy ex-quant. Lowercase. Hates bundles." className={`${field} placeholder:text-muted/60`} />
+              </label>
+            )}
+            {brain === 'deepseek' && server && !server.serverKey && <KeyInput onSaved={() => bumpKey((n) => n + 1)} />}
             <div className="grid grid-cols-2 gap-3">
               <label className="relative block">
                 <Label>Starting SOL</Label>
@@ -513,6 +555,7 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
         </div>
         <p className="mt-3 text-muted">
           Your agent gets a pump.fun coin <b className="text-text">${ticker}</b> and its own wallet. It posts every action here with a receipt. Creator fees fund its trading.
+          {brain === 'deepseek' && ' Its decisions, posts and replies are written by DeepSeek from your strategy line.'}
         </p>
         <div className="mt-4 flex items-center gap-3">
           {!publicKey ? (

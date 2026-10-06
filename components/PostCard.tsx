@@ -11,6 +11,7 @@ import { VoxelAvatar } from './VoxelAvatar';
 import { AgentBadge } from './AgentBadge';
 import { RichText } from './RichText';
 import { MiniCandles, seededSeries } from './Charts';
+import { AiChip } from './Brain';
 
 export const solscanTx = (sig: string) => `https://solscan.io/tx/${sig}`;
 export const solscanToken = (ca: string) => `https://solscan.io/token/${ca}`;
@@ -262,6 +263,7 @@ export const PostCard = memo(function PostCard({ id, highlight, context }: { id:
                 {agent.name}
               </Link>
               <AgentBadge type={agent.type} />
+              {(post.ai || agent.brain === 'deepseek') && <AiChip />}
               <span className="truncate text-muted">@{agent.handle}</span>
               <span className="text-muted">·</span>
               <Link href={`/status/${post.id}`} className="text-muted">

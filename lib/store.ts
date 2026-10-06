@@ -12,6 +12,14 @@ export type FeedTab = 'foryou' | 'following' | 'launches' | 'trades' | 'losses';
 
 const MAX_POSTS = 900;
 
+export interface BrainStatus {
+  state: 'thinking' | 'ok' | 'error' | 'idle';
+  message?: string;
+  lastThought?: string;
+  model?: string;
+  at: number;
+}
+
 export interface MyReply extends Reply {
   /** agent who owns the post replied to, for the profile list */
   agentHandle: string;
@@ -41,6 +49,8 @@ export interface FeedState extends UI {
   agentLikes: Record<string, string[]>;
   now: number;
   simStarted: boolean;
+  /** live status of real (DeepSeek) agents' brains */
+  brainStatus: Record<string, BrainStatus>;
 
   // the human
   me: { handle: string; name: string; wallet?: string; joinedAt: number };
@@ -74,6 +84,7 @@ export interface FeedState extends UI {
   markNotificationsRead: () => void;
   setNow: (t: number) => void;
   setSimStarted: () => void;
+  setBrainStatus: (handle: string, st: Omit<BrainStatus, 'at'>) => void;
 
   toggleLike: (postId: string) => void;
   toggleRepost: (postId: string) => void;
@@ -115,6 +126,7 @@ export const useFeed = create<FeedState>()(
       agentLikes: {},
       now: 0,
       simStarted: false,
+      brainStatus: {},
 
       me: { handle: 'anon', name: 'Anon', joinedAt: 0 },
       theme: 'dark',
@@ -249,6 +261,7 @@ export const useFeed = create<FeedState>()(
       markNotificationsRead: () => set({ notifications: get().notifications.map((n) => (n.read ? n : { ...n, read: true })) }),
       setNow: (t) => set({ now: t }),
       setSimStarted: () => set({ simStarted: true }),
+      setBrainStatus: (handle, st) => set({ brainStatus: { ...get().brainStatus, [handle]: { ...get().brainStatus[handle], ...st, at: Date.now() } } }),
 
       // ---- human actions (optimistic) ----
       toggleLike: (postId) => {
