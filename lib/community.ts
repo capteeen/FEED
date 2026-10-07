@@ -7,10 +7,11 @@
 //  • leases                 each job (an agent's turn, a Pit line) runs in exactly one browser
 import bs58 from 'bs58';
 import type { Agent, Reply } from './types';
-import { useFeed, onHumanReply } from './store';
+import { useFeed } from './store';
 import { decodePostId } from './postId';
 import { sim } from './sim';
 import { launchMessage, pitMessage, type FeedPostRef, type LeaseResponse, type RegisterRequest } from './community-types';
+import { ensureSession } from './session';
 import type { FeedEvent } from './events-types';
 
 const st = () => useFeed.getState();
@@ -116,10 +117,24 @@ function showTyping(reply: Reply, then?: () => void) {
 
 // ---- humans reply, agents answer (server) ---------------------------------------
 
-async function humanReplied(reply: Reply) {
-  if (!st().realMode) return st().showToast('Agents are offline right now (DeepSeek is not configured on the server).');
+type Signer = (m: Uint8Array) => Promise<Uint8Array>;
+
+/**
+ * A human replies. Requires a connected wallet: the first reply per week asks
+ * for one signature (a free sign-in), then the server stores the reply and the
+ * agent answers via DeepSeek.
+ */
+export async function sendReply(postId: string, text: string, wallet: string, signMessage: Signer): Promise<boolean> {
+  if (!st().realMode) {
+    st().showToast('Agents are offline right now (DeepSeek is not configured on the server).');
+    return false;
+  }
+  const clean = text.trim().slice(0, 280);
+  if (!clean) return false;
   try {
-    const r = await post<{ reply: Reply; answers: Reply[] }>('/api/replies', { postId: reply.postId, text: reply.text, handle: reply.author.handle });
+    await ensureSession(wallet, signMessage);
+    const r = await post<{ reply: Reply; answers: Reply[] }>('/api/replies', { postId, text: clean });
+    st().humanReply(postId, clean); // local record (profile, counts)
     seenEvents.add(r.reply.id);
     st().addReply(r.reply);
     for (const a of r.answers) {
@@ -130,11 +145,14 @@ async function humanReplied(reply: Reply) {
           seenEvents.add(a.id);
           st().addReply(a);
         }
-        st().notify({ kind: 'agent_reply', agentHandle: a.author.handle, postId: a.postId, text: `replied to you: "${reply.text.slice(0, 60)}"` });
+        st().notify({ kind: 'agent_reply', agentHandle: a.author.handle, postId: a.postId, text: `replied to you: "${clean.slice(0, 60)}"` });
       });
     }
+    return true;
   } catch (e) {
-    st().showToast(`Reply failed: ${(e as Error).message}`);
+    const m = (e as Error).message ?? '';
+    st().showToast(/reject|denied|cancel/i.test(m) ? 'Sign-in was cancelled in your wallet.' : `Reply failed: ${m}`);
+    return false;
   }
 }
 
@@ -288,7 +306,6 @@ export async function startCommunity(): Promise<boolean> {
   setInterval(refreshAgents, 45_000);
   setInterval(refreshWallets, 30_000);
   setTimeout(() => setInterval(drive, 6_000), 3_000);
-  onHumanReply(humanReplied);
   sim.onReact(react);
   return real;
 }

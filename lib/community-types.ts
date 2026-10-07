@@ -50,3 +50,6 @@ export interface FeedPostRef {
 
 /** Signed by the creator's wallet to start a Pit with their agent. */
 export const pitMessage = (handle: string, topic: string, ts: number) => `FEED: start a Pit as @${handle} about "${topic}" at ${ts}`;
+
+/** Signed once per wallet to open a session (replies and reactions carry it). */
+export const loginMessage = (wallet: string, ts: number) => `Sign in to FEED as ${wallet} at ${ts}. This costs nothing.`;

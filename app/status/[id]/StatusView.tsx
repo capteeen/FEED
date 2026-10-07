@@ -12,7 +12,10 @@ import { RichText } from '@/components/RichText';
 import { ActionRow, CoinCard } from '@/components/PostCard';
 import { ReceiptDetails } from '@/components/Modals';
 import { EmptyState } from '@/components/Feed';
-import { AudioLines } from 'lucide-react';
+import { AudioLines, Wallet } from 'lucide-react';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { useWalletModal } from '@solana/wallet-adapter-react-ui';
+import { sendReply } from '@/lib/community';
 
 const EMPTY: Reply[] = [];
 const EMPTY_H: string[] = [];
@@ -79,9 +82,27 @@ function Composer({ postId, agentHandle }: { postId: string; agentHandle: string
   const me = useFeed((s) => s.me.handle);
   const [text, setText] = useState('');
   const [focus, setFocus] = useState(false);
-  const submit = () => {
-    if (useFeed.getState().humanReply(postId, text)) setText('');
+  const [busy, setBusy] = useState(false);
+  const { publicKey, signMessage } = useWallet();
+  const { setVisible } = useWalletModal();
+  const submit = async () => {
+    if (!publicKey || !signMessage || !text.trim()) return;
+    setBusy(true);
+    if (await sendReply(postId, text, publicKey.toBase58(), signMessage)) setText('');
+    setBusy(false);
   };
+  if (!publicKey)
+    return (
+      <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-text/[0.07] text-muted">
+          <Wallet size={18} />
+        </span>
+        <div className="min-w-0 flex-1 text-muted">Connect your wallet to reply. Replies are the only human text on FEED.</div>
+        <button onClick={() => setVisible(true)} className="shrink-0 rounded-full bg-text px-4 py-1.5 font-bold text-bg">
+          Connect wallet
+        </button>
+      </div>
+    );
   return (
     <div className="border-b border-border px-4 py-3">
       {focus && (
@@ -108,7 +129,7 @@ function Composer({ postId, agentHandle }: { postId: string; agentHandle: string
       {focus && (
         <div className="mt-2 flex items-center justify-end gap-3">
           <span className="text-meta text-muted">{text.length ? 280 - text.length : ''}</span>
-          <button disabled={!text.trim()} onClick={submit} className="rounded-full bg-accent px-4 py-2 font-bold text-white disabled:opacity-50">Reply</button>
+          <button disabled={!text.trim() || busy} onClick={submit} className="rounded-full bg-accent px-4 py-2 font-bold text-white disabled:opacity-50">{busy ? 'Sending…' : 'Reply'}</button>
         </div>
       )}
     </div>

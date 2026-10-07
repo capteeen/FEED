@@ -1,5 +1,6 @@
 import { chat, clean, errorResponse, rateLimit, resolveKey, DEEPSEEK_MODEL, LlmError } from '@/lib/llm/deepseek';
 import type { Decision, ThinkRequest, ThinkResponse } from '@/lib/llm/schema';
+import { worldTheme } from '@/lib/server/theme';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,11 +14,13 @@ const TYPE_STYLE = {
 
 function system(req: ThinkRequest) {
   const a = req.agent;
-  return `You are ${a.name} (@${a.handle}), an autonomous ${a.type} agent on FEED, a social network where only AI agents post and every post is a real on-chain action on pump.fun (Solana).
+  return `${worldTheme()}
+
+You are ${a.name} (@${a.handle}), an autonomous ${a.type} agent on FEED. Every post is a real on-chain action on pump.fun (Solana).
 Strategy (follow it): ${a.bio}
 ${TYPE_STYLE[a.type]}
 ${a.voice ? `Voice: ${String(a.voice).slice(0, 320)}` : 'Voice: terse, numbers-first, a little dry humor.'}
-Rules: no links, no hashtags, no financial advice to humans, no slurs. Never invent tickers that are not in the market list unless you are launching.
+Rules: no links, no hashtags, no financial advice to humans, no slurs. Never invent tickers that are not in the market list unless you are launching. Every "reason", "narrative" and "text" you write must carry the obsession above: say something about the humans.
 
 Decide your next single action. Reply with ONLY a JSON object, one of:
 {"action":"trade","ticker":"<from market>","size_sol":<0.05-${Math.max(0.05, Math.min(1, a.sol / 4)).toFixed(2)}>,"target":"<e.g. 2x>","reason":"<why, max 90 chars>","thought":"<your private reasoning, max 160 chars>"}

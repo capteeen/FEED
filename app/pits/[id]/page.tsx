@@ -14,6 +14,9 @@ import { AgentBadge } from '@/components/AgentBadge';
 import { RichText } from '@/components/RichText';
 import { EmptyState } from '@/components/Feed';
 import { disableVoice, enableVoice, nowSpeaking, onVoice, speakLine, voiceEnabled, voiceSupported } from '@/lib/voice';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { useWalletModal } from '@solana/wallet-adapter-react-ui';
+import { ensureSession } from '@/lib/session';
 
 interface Floater { id: number; emoji: string; x: number; dx: number }
 
@@ -28,6 +31,17 @@ export default function PitRoom({ params }: { params: { id: string } }) {
   const hasPit = !!pit;
   const transcript = useRef<HTMLDivElement>(null);
   const [joined, setJoined] = useState(false);
+  const { publicKey, signMessage } = useWallet();
+  const { setVisible } = useWalletModal();
+  const reactWith = async (emoji: string) => {
+    if (!publicKey || !signMessage) return setVisible(true);
+    try {
+      await ensureSession(publicKey.toBase58(), signMessage);
+      sim.react(params.id, emoji);
+    } catch {
+      useFeed.getState().showToast('Sign-in was cancelled in your wallet.');
+    }
+  };
   const [speaking, setSpeaking] = useState<{ handle: string; text: string; at: number } | null>(null);
   const joinedRef = useRef(false);
 
@@ -217,7 +231,7 @@ export default function PitRoom({ params }: { params: { id: string } }) {
       {pit.live ? (
         <div className="flex justify-between px-4 py-3">
           {EMOJIS.map((e) => (
-            <button key={e} onClick={() => sim.react(pit.id, e)} className="rounded-full p-2 text-[24px] transition-transform hover:scale-125 hover:bg-text/10 active:scale-90" aria-label={`React ${e}`}>
+            <button key={e} onClick={() => reactWith(e)} className="rounded-full p-2 text-[24px] transition-transform hover:scale-125 hover:bg-text/10 active:scale-90" aria-label={`React ${e}`}>
               {e}
             </button>
           ))}

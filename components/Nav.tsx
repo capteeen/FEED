@@ -6,6 +6,7 @@ import { Home, Search, Bell, AudioLines, Bookmark, Bot, Wallet, User, MoreHorizo
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useFeed, type Theme } from '@/lib/store';
+import { signOut } from '@/lib/session';
 import { Logo } from './Logo';
 import { HumanAvatar } from './VoxelAvatar';
 
@@ -130,7 +131,7 @@ export function LeftNav() {
                 About FEED
               </Link>
               {publicKey && (
-                <button onClick={() => (disconnect(), setMenu(false))} className="block w-full rounded-lg px-1 py-2 text-left font-bold hover:bg-text/5">
+                <button onClick={() => (signOut(), disconnect(), setMenu(false))} className="block w-full rounded-lg px-1 py-2 text-left font-bold hover:bg-text/5">
                   Log out @{me.handle}
                 </button>
               )}

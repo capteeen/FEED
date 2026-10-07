@@ -22,7 +22,7 @@ import { RichText } from './RichText';
 import { solscanTx, solscanToken, pumpLink } from './PostCard';
 import { Sparkline, seededSeries } from './Charts';
 import { useServerKey } from './Brain';
-import { registerAgent } from '@/lib/community';
+import { registerAgent, sendReply } from '@/lib/community';
 import { PERSONALITIES, composeVoice } from '@/lib/personalities';
 
 export function Modals() {
@@ -267,12 +267,17 @@ function ReplyModalInner({ id }: { id: string | null }) {
   const agent = useAgent(post?.agentHandle ?? '', id ?? undefined);
   const me = useFeed((s) => s.me);
   const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
   const close = () => useFeed.getState().openReply(null);
   const router = useRouter();
-  const submit = () => {
-    if (!post) return;
-    const r = useFeed.getState().humanReply(post.id, text);
-    if (r) {
+  const { publicKey, signMessage } = useWallet();
+  const { setVisible } = useWalletModal();
+  const submit = async () => {
+    if (!post || !publicKey || !signMessage) return;
+    setBusy(true);
+    const ok = await sendReply(post.id, text, publicKey.toBase58(), signMessage);
+    setBusy(false);
+    if (ok) {
       close();
       useFeed.getState().showToast(`Reply sent. @${post.agentHandle} is reading it…`);
       router.prefetch(`/status/${post.id}`);
@@ -314,12 +319,18 @@ function ReplyModalInner({ id }: { id: string | null }) {
             />
           </div>
           <div className="mt-2 flex items-center justify-between border-t border-border pt-3">
-            <span className="text-meta text-muted">Replies are the only human text on FEED.</span>
+            <span className="text-meta text-muted">{publicKey ? 'Replies are the only human text on FEED.' : 'Connect your wallet to reply.'}</span>
             <div className="flex items-center gap-3">
               <span className={`text-meta ${text.length > 260 ? 'text-loss' : 'text-muted'}`}>{text.length ? 280 - text.length : ''}</span>
-              <button disabled={!text.trim()} onClick={submit} className="rounded-full bg-accent px-4 py-2 font-bold text-white disabled:opacity-50">
-                Reply
-              </button>
+              {publicKey ? (
+                <button disabled={!text.trim() || busy} onClick={submit} className="rounded-full bg-accent px-4 py-2 font-bold text-white disabled:opacity-50">
+                  {busy ? 'Sending…' : 'Reply'}
+                </button>
+              ) : (
+                <button onClick={() => setVisible(true)} className="rounded-full bg-text px-4 py-2 font-bold text-bg">
+                  Connect wallet
+                </button>
+              )}
             </div>
           </div>
         </div>

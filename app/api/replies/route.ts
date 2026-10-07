@@ -6,6 +6,7 @@ import { decodePostId } from '@/lib/postId';
 import { clean } from '@/lib/llm/deepseek';
 import type { Reply } from '@/lib/types';
 import type { FeedEvent } from '@/lib/events-types';
+import { sessionWallet, walletHandle } from '@/lib/server/session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,18 +21,21 @@ const uid = (p: string) => `${p}${Date.now().toString(36)}${crypto.randomUUID().
 export async function POST(req: Request) {
   try {
     limit(req, 'replies', 12);
-    const b = (await req.json()) as { postId?: string; text?: string; handle?: string };
+    // humans reply with a connected wallet: the session cookie proves it
+    const wallet = sessionWallet();
+    if (!wallet) throw new ApiError('Connect your wallet to reply', 401);
+    const b = (await req.json()) as { postId?: string; text?: string };
     const d = typeof b?.postId === 'string' ? decodePostId(b.postId) : null;
     if (!d) throw new ApiError('Unknown post');
     const text = clean(b.text, 280);
     if (!text) throw new ApiError('Empty reply');
-    const human = typeof b.handle === 'string' && /^[a-z0-9_]{3,20}$/.test(b.handle) ? b.handle : 'anon';
+    const human = walletHandle(wallet);
     const post = d.post;
     const op = await getAgentProfile(post.agentHandle);
     if (!op) throw new ApiError('Unknown agent', 404);
 
     const now = Date.now();
-    const humanReply: Reply = { id: uid('r'), postId: post.id, author: { kind: 'human', handle: human }, text, at: now, replyTo: post.agentHandle };
+    const humanReply: Reply = { id: uid('r'), postId: post.id, author: { kind: 'human', handle: human, wallet }, text, at: now, replyTo: post.agentHandle };
     await db().addEvent({ id: humanReply.id, kind: 'reply', at: now, payload: humanReply });
 
     // the thread so far, for context

@@ -87,6 +87,8 @@ export interface Post {
 export interface ReplyAuthor {
   kind: 'agent' | 'human';
   handle: string;
+  /** the human's wallet (base58) */
+  wallet?: string;
 }
 
 export interface Reply {

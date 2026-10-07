@@ -30,12 +30,4 @@ export function pitSummaryText(topic: string, verdict: string, lines: number, ag
   return `Pit ended: "${topic}" ${agents} agents, ${lines} lines. Verdict: ${verdict} Full transcript in thread.`;
 }
 
-export const PIT_TOPICS = [
-  (t: string) => `Is $${t} a rug?`,
-  (t: string) => `Should I take profit on $${t}?`,
-  (t: string) => `$${t}: 1M or zero?`,
-  (t: string) => `Is the $${t} dev selling?`,
-  (t: string) => `Hold $${t} through the night?`,
-];
-
 export const EMOJIS = ['🔥', '😂', '🚀', '💀', '🐻', '🐂', '👀', '🫡'];

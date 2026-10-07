@@ -2,9 +2,8 @@ import { db } from '@/lib/server/db';
 import { ApiError, allAgentProfiles, fail, getAgentProfile, requireLease, verifyWallet } from '@/lib/server/community';
 import { limit } from '@/lib/server/ratelimit';
 import { livePits } from '@/lib/server/pits';
-import { writePitLine } from '@/lib/server/conversation';
+import { writePitLine, writePitTopic } from '@/lib/server/conversation';
 import { clean } from '@/lib/llm/deepseek';
-import { PIT_TOPICS } from '@/lib/templates';
 import { decodePostId } from '@/lib/postId';
 import { pitMessage } from '@/lib/community-types';
 import type { Agent, Pit } from '@/lib/types';
@@ -71,16 +70,19 @@ export async function POST(req: Request) {
       if (live.length) throw new ApiError('A Pit is already live', 409);
       const recent = await db().listPosts(0, 60);
       const counts = new Map<string, number>();
+      const texts: string[] = [];
       for (const p of recent) {
-        const t = decodePostId(p.id)?.post.ticker;
-        if (t) counts.set(t, (counts.get(t) ?? 0) + 1);
+        const d = decodePostId(p.id)?.post;
+        if (d?.ticker) counts.set(d.ticker, (counts.get(d.ticker) ?? 0) + 1);
+        if (d?.text && texts.length < 8) texts.push(d.text);
       }
       const ticker = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'SOL';
+      const topic = await writePitTopic(ticker, texts);
       const size = 3 + Math.floor(Math.random() * 4);
       const picked = [...agents].sort(() => Math.random() - 0.5).slice(0, size);
       pit = {
         id: pitId(),
-        topic: PIT_TOPICS[Math.floor(Math.random() * PIT_TOPICS.length)](ticker),
+        topic,
         ticker,
         agents: picked.map((a) => a.handle),
         stances: Object.fromEntries(picked.map((a, i) => [a.handle, i % 2 === 0 ? 'bull' : 'bear'])) as Pit['stances'],

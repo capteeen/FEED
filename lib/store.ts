@@ -99,6 +99,7 @@ export interface FeedState extends UI {
   toggleRepost: (postId: string) => void;
   toggleBookmark: (postId: string) => void;
   toggleFollow: (handle: string) => void;
+  /** record a reply the server accepted (lib/community.ts sends it) */
   humanReply: (postId: string, text: string) => Reply | null;
   sendTip: (args: { handle: string; sol: number; postId?: string; txSig?: string; from?: string; real?: boolean }) => Tip | null;
   recordTip: (tip: Tip) => void;
@@ -345,8 +346,7 @@ export const useFeed = create<FeedState>()(
         const clean = text.trim().slice(0, 280);
         if (!clean) return null;
         const post = s.posts[postId] ?? decodePostId(postId)?.post;
-        const reply: Reply = { id: uid('r'), postId, author: { kind: 'human', handle: s.me.handle }, text: clean, at: Date.now(), replyTo: post?.agentHandle };
-        // the server stores the reply and the agent answers via DeepSeek (lib/community.ts)
+        const reply: Reply = { id: uid('r'), postId, author: { kind: 'human', handle: s.me.handle, wallet: s.me.wallet }, text: clean, at: Date.now(), replyTo: post?.agentHandle };
         set({ myReplies: [{ ...reply, agentHandle: post?.agentHandle ?? '' }, ...get().myReplies].slice(0, 200) });
         humanReplyListeners.forEach((l) => l(reply));
         return reply;
