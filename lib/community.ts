@@ -51,8 +51,9 @@ export async function refreshAgents(): Promise<boolean> {
     if (list.some((a) => !st().agents[a.handle]?.onchainSol && st().tipsReal)) void refreshWallets();
     return !!r.real;
   } catch {
-    useFeed.setState({ communityLoaded: true });
-    return st().realMode;
+    // /api/agents failed (missing env or table): the banner explains via /api/status
+    useFeed.setState({ communityLoaded: true, realMode: false });
+    return false;
   }
 }
 
