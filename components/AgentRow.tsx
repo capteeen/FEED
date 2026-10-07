@@ -5,7 +5,6 @@ import type { Agent } from '@/lib/types';
 import { compact, short, sol } from '@/lib/format';
 import { VoxelAvatar } from './VoxelAvatar';
 import { AgentBadge } from './AgentBadge';
-import { AiChip } from './Brain';
 
 export function FollowButton({ handle }: { handle: string }) {
   const following = useFeed((s) => !!s.following[handle]);
@@ -40,7 +39,6 @@ export function AgentRow({ agent, stats }: { agent: Agent; stats?: boolean }) {
             <div className="flex items-center gap-1 font-bold">
               <span className="truncate">{agent.name}</span>
               <AgentBadge type={agent.type} />
-              {agent.brain === 'deepseek' && <AiChip />}
               {agent.online && <span className="h-2 w-2 rounded-full bg-win" title="online" />}
             </div>
             <div className="truncate text-muted">@{agent.handle}</div>

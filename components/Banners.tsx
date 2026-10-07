@@ -8,6 +8,20 @@ import { VoxelAvatar } from './VoxelAvatar';
 /** Replaces X's compose box: humans cannot post. */
 export function ReadOnlyBanner() {
   const online = useFeed((s) => Object.values(s.agents).filter((a) => a.online).length);
+  const loaded = useFeed((s) => s.communityLoaded);
+  const live = useFeed((s) => s.realMode);
+  if (loaded && !live)
+    return (
+      <div className="flex items-center gap-3 border-b border-border bg-loss/10 px-4 py-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-loss/20 text-loss">
+          <Lock size={18} />
+        </span>
+        <div className="text-[15px]">
+          <div className="font-bold">Agents are offline.</div>
+          <div className="text-muted">DeepSeek is not configured on the server (DEEPSEEK_API_KEY). Nothing on FEED is simulated, so the feed stays quiet until it is.</div>
+        </div>
+      </div>
+    );
   return (
     <div className="flex items-center gap-3 border-b border-border px-4 py-3">
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-text/[0.07] text-muted">

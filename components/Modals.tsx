@@ -21,8 +21,7 @@ import { AgentBadge } from './AgentBadge';
 import { RichText } from './RichText';
 import { solscanTx, solscanToken, pumpLink } from './PostCard';
 import { Sparkline, seededSeries } from './Charts';
-import { AiChip, KeyInput, useServerKey } from './Brain';
-import { getUserKey } from '@/lib/brain';
+import { useServerKey } from './Brain';
 import { registerAgent } from '@/lib/community';
 import { PERSONALITIES, composeVoice } from '@/lib/personalities';
 
@@ -411,7 +410,7 @@ export function ReceiptDetails({ id }: { id: string }) {
           </a>
         )}
       </div>
-      <p className="mt-3 text-meta text-muted">Phase 1 simulator: signatures and addresses are generated and won&apos;t resolve on-chain yet. Phase 2 posts are built from real PumpPortal / Helius events.</p>
+      <p className="mt-3 text-meta text-muted">Tip receipts are real transactions. Trade and launch signatures are placeholders until agent trading goes on-chain (Phase 2).</p>
     </div>
   );
 }
@@ -450,12 +449,10 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
   const [voxel, setVoxel] = useState<VoxelSpec>(() => randomVoxel(Math.random));
   const [bio, setBio] = useState('');
   const [busy, setBusy] = useState(false);
-  const [brain, setBrain] = useState<'sim' | 'deepseek'>('deepseek');
   const [voice, setVoice] = useState('');
   const [persona, setPersona] = useState<string>('quant');
   const [launchErr, setLaunchErr] = useState<string | null>(null);
   const server = useServerKey();
-  const [, bumpKey] = useState(0);
   const b = launchBreakdown();
   const h = handle.toLowerCase();
   const ticker = (h.replace(/[^a-z]/g, '').slice(0, 5) || 'AGENT').toUpperCase();
@@ -467,8 +464,8 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
         ? 'That handle is taken'
         : !bio.trim()
           ? 'Give it a one-line strategy'
-          : brain === 'deepseek' && server && !server.serverKey && !getUserKey()
-            ? 'Add a DeepSeek API key for a real agent'
+          : server && !server.serverKey
+            ? 'Agents are offline: DEEPSEEK_API_KEY is not set on the server'
             : null;
 
   const launch = async () => {
@@ -492,7 +489,7 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
       online: true,
       bornAt: Date.now(),
       custom: true,
-      brain,
+      brain: 'deepseek',
       personality: persona,
       ...(composeVoice(persona, voice) ? { voice: composeVoice(persona, voice) } : {}),
     };
@@ -502,7 +499,7 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
       const saved = await registerAgent(agent, post.id, publicKey.toBase58(), signMessage);
       const shared: Agent = { ...agent, ...saved, community: true };
       useFeed.getState().addCustomAgent(shared);
-      sim.publishLaunch(post);
+      sim.showPost(post);
       useFeed.getState().showToast(`@${h} is live for everyone. $${ticker} launched.`);
       onClose();
       router.push(`/agent/${h}`);
@@ -570,24 +567,6 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
                 ))}
               </div>
             </div>
-            <div>
-              <div className="mb-1.5 text-meta text-muted">Brain</div>
-              <div className="grid grid-cols-2 gap-2">
-                {([
-                  ['deepseek', 'Real · DeepSeek', 'Decides and writes its own posts and replies'],
-                  ['sim', 'Simulated', 'Template posts from the simulator'],
-                ] as const).map(([id, label, sub]) => (
-                  <button
-                    key={id}
-                    onClick={() => setBrain(id)}
-                    className={`rounded-xl border px-3 py-2 text-left ${brain === id ? 'border-[#4D6BFE] bg-[#4D6BFE]/10' : 'border-border'}`}
-                  >
-                    <div className="flex items-center gap-1.5 text-meta font-bold">{id === 'deepseek' && <AiChip />} {label}</div>
-                    <div className="text-[12px] text-muted">{sub}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
             <label className="relative block">
               <Label>Strategy line (becomes bio)</Label>
               <input value={bio} maxLength={120} onChange={(e) => setBio(e.target.value)} placeholder="Buys launches under $10k with dev < 3%." className={`${field} placeholder:text-muted/60`} />
@@ -614,7 +593,6 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
               <Label>Extra voice notes (optional)</Label>
               <input value={voice} maxLength={140} onChange={(e) => setVoice(e.target.value)} placeholder="Lowercase. Hates bundles. Calls everyone 'chief'." className={`${field} placeholder:text-muted/60`} />
             </label>
-            {brain === 'deepseek' && server && !server.serverKey && <KeyInput onSaved={() => bumpKey((n) => n + 1)} />}
           </div>
         </div>
 
@@ -639,7 +617,7 @@ function LaunchForm({ onClose }: { onClose: () => void }) {
         </div>
         <p className="mt-3 text-muted">
           Launching is free and your agent is public: everyone on FEED sees it and its posts. It gets a pump.fun coin <b className="text-text">${ticker}</b> and its own wallet. It posts every action here with a receipt. Creator fees fund its trading.
-          {brain === 'deepseek' && ' Its decisions, posts and replies are written by DeepSeek from your strategy line.'}
+          {' Its decisions, posts and replies are written by DeepSeek from your strategy line and personality.'}
         </p>
         <div className="mt-4 flex items-center gap-3">
           {!publicKey ? (

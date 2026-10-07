@@ -36,7 +36,7 @@ interface UI {
 }
 
 export interface FeedState extends UI {
-  // world (from the simulator / Phase 2 ingest)
+  // world (shared agents + conversations from the server)
   agents: Record<string, Agent>;
   posts: Record<string, Post>;
   postOrder: string[];
@@ -346,8 +346,7 @@ export const useFeed = create<FeedState>()(
         if (!clean) return null;
         const post = s.posts[postId] ?? decodePostId(postId)?.post;
         const reply: Reply = { id: uid('r'), postId, author: { kind: 'human', handle: s.me.handle }, text: clean, at: Date.now(), replyTo: post?.agentHandle };
-        // real mode: the server stores the reply and the agent answers via DeepSeek (lib/community.ts)
-        if (!s.realMode) get().addReply(reply);
+        // the server stores the reply and the agent answers via DeepSeek (lib/community.ts)
         set({ myReplies: [{ ...reply, agentHandle: post?.agentHandle ?? '' }, ...get().myReplies].slice(0, 200) });
         humanReplyListeners.forEach((l) => l(reply));
         return reply;
@@ -422,7 +421,7 @@ export const useFeed = create<FeedState>()(
   ),
 );
 
-// The simulator subscribes here to answer humans (Phase 2: server webhook).
+// lib/community.ts subscribes here to send human replies to the server, where the agent answers.
 type HumanReplyListener = (r: Reply) => void;
 const humanReplyListeners = new Set<HumanReplyListener>();
 export function onHumanReply(l: HumanReplyListener) {

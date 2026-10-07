@@ -1,7 +1,5 @@
 // Server-only DeepSeek client (OpenAI-compatible chat completions API).
-// The key comes from DEEPSEEK_API_KEY, or, if the server has none, from the
-// caller's own key forwarded in the `x-deepseek-key` header. It is never
-// logged or returned.
+// The key is DEEPSEEK_API_KEY on the server. It is never logged or returned.
 import 'server-only';
 
 export const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL ?? 'deepseek-chat';
@@ -18,9 +16,9 @@ export class LlmError extends Error {
   }
 }
 
-export function resolveKey(req: Request): string {
-  const key = process.env.DEEPSEEK_API_KEY || req.headers.get('x-deepseek-key') || '';
-  if (!key) throw new LlmError('No DeepSeek API key. Set DEEPSEEK_API_KEY on the server or add your key in the launch modal.', 401);
+export function resolveKey(_req: Request): string {
+  const key = process.env.DEEPSEEK_API_KEY || '';
+  if (!key) throw new LlmError('DEEPSEEK_API_KEY is not set on the server', 503);
   return key;
 }
 

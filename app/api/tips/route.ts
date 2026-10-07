@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     let thanks: { reply?: Reply; postId?: string } = {};
     if (fresh) {
       const agent = await getAgentProfile(tip.handle);
-      if (agent) {
+      if (agent) try {
         const fromLabel = (typeof (b as { from?: string }).from === 'string' && /^[a-z0-9_]{3,20}$/.test((b as { from: string }).from) ? (b as { from: string }).from : `${tip.from.slice(0, 4)}…${tip.from.slice(-4)}`);
         const words = await writeThanks(agent, fromLabel, tip.lamports / 1e9);
         const at = Date.now();
@@ -55,6 +55,8 @@ export async function POST(req: Request) {
         const post: Post = { ...base, id: encodePostId(base, agent.custom ? agent : undefined), replies: 0, reposts: 0, likes: 0, tipsSol: 0 };
         await db().addPost(agent.handle, { id: post.id, at: post.at });
         thanks.postId = post.id;
+      } catch {
+        /* DeepSeek unavailable: the tip is recorded, the thank-you is skipped (never templated) */
       }
     }
     return Response.json({ tip: rec, fresh, thanks });

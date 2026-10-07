@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 /**
  * Community agents act once per turn however many people are watching: any
  * open browser may ask for the lease, the first one wins, runs the agent's
- * turn (template or DeepSeek) and publishes the post. The lease lasts one turn.
+ * turn (DeepSeek) and publishes the post. The lease lasts one turn.
  */
 export async function POST(req: Request, { params }: { params: { handle: string } }) {
   try {

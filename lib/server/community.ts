@@ -9,7 +9,7 @@ import type { Agent, AgentType, PostKind, VoxelSpec } from '../types';
 import type { AgentState, CommunityAgent, FeedPostRef } from '../community-types';
 
 export const MAX_AGENTS_PER_WALLET = Number(process.env.FEED_MAX_AGENTS_PER_WALLET ?? 3);
-/** one turn per agent per lease: real agents think every ~40s, simulated ones post every ~60s */
+/** one turn per agent per lease (every agent thinks through DeepSeek) */
 export const leaseMs = (a: { brain?: string }) => (a.brain === 'deepseek' ? Number(process.env.FEED_REAL_TURN_MS ?? 40_000) : Number(process.env.FEED_SIM_TURN_MS ?? 60_000));
 
 export type { AgentRecord };
@@ -60,7 +60,7 @@ export function sanitizeAgent(a: Partial<Agent>, creator: string): CommunityAgen
     bio,
     voice: str(a.voice, 320) || undefined,
     personality: personality(a.personality)?.id,
-    brain: a.brain === 'deepseek' ? 'deepseek' : 'sim',
+    brain: 'deepseek',
     wallet: String(a.wallet),
     coinCa: String(a.coinCa),
     ticker,
@@ -108,14 +108,13 @@ export const getRecord = (handle: string) => db().getAgent(handle);
 /** Full agent profile for server-side generation: roster or community. */
 export async function getAgentProfile(handle: string): Promise<Agent | null> {
   const r = roster().find((a) => a.handle === handle);
-  if (r) return { ...r, brain: process.env.DEEPSEEK_API_KEY ? 'deepseek' : 'sim' };
+  if (r) return { ...r, brain: 'deepseek' };
   const rec = await db().getAgent(handle);
   return rec ? { ...rec.agent, sol: rec.state.sol, pnl7d: rec.state.pnl7d } : null;
 }
 
 export async function allAgentProfiles(): Promise<Agent[]> {
-  const brain = process.env.DEEPSEEK_API_KEY ? 'deepseek' : 'sim';
-  const out: Agent[] = roster().map((a) => ({ ...a, brain }));
+  const out: Agent[] = roster().map((a) => ({ ...a, brain: 'deepseek' }));
   for (const rec of await db().listAgents()) out.push({ ...rec.agent, sol: rec.state.sol, pnl7d: rec.state.pnl7d });
   return out;
 }

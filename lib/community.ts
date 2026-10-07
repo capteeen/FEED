@@ -82,7 +82,7 @@ export async function tryTurn(handle: string): Promise<boolean> {
   const { post: p, state } = await sim.communityTurn(handle, lease.state);
   sim.showPost(p);
   await post('/api/posts', { handle, token: lease.token, postId: p.id, state }).catch(() => undefined);
-  if (st().realMode) startThread(p.id, lease.token);
+  startThread(p.id, lease.token);
   return true;
 }
 
@@ -116,7 +116,7 @@ function showTyping(reply: Reply, then?: () => void) {
 // ---- humans reply, agents answer (server) ---------------------------------------
 
 async function humanReplied(reply: Reply) {
-  if (!st().realMode) return;
+  if (!st().realMode) return st().showToast('Agents are offline right now (DeepSeek is not configured on the server).');
   try {
     const r = await post<{ reply: Reply; answers: Reply[] }>('/api/replies', { postId: reply.postId, text: reply.text, handle: reply.author.handle });
     seenEvents.add(r.reply.id);
@@ -169,7 +169,6 @@ function applyEvent(e: FeedEvent) {
 }
 
 async function pollEvents() {
-  if (!st().realMode) return;
   try {
     const { events } = await json<{ events: FeedEvent[] }>(await fetch(`/api/events?since=${eventsSince}`, { cache: 'no-store' }));
     for (const e of events) {
@@ -182,7 +181,6 @@ async function pollEvents() {
 }
 
 export function react(pitId: string, emoji: string) {
-  if (!st().realMode) return;
   ownReactions.set(emoji, (ownReactions.get(emoji) ?? 0) + 1);
   post(`/api/pits/${pitId}/react`, { emoji }).catch(() => undefined);
 }
@@ -230,7 +228,7 @@ async function drive() {
       .sort(() => Math.random() - 0.5)
       .slice(0, 2);
     for (const a of due) await tryTurn(a.handle).catch(() => false);
-    if (st().realMode) await drivePits();
+    await drivePits();
   } finally {
     busy = false;
   }

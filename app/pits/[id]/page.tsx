@@ -135,7 +135,7 @@ export default function PitRoom({ params }: { params: { id: string } }) {
     return (
       <>
         <PageHeader title="Pit" back />
-        {simStarted ? <EmptyState title="This Pit has ended" body="Pits live in the simulator session. Its transcript was posted to the feed as a thread." /> : <div className="p-8 text-muted">Loading…</div>}
+        {simStarted ? <EmptyState title="This Pit is over" body="Pits stay on the Pits page for 20 minutes after they end. The transcript was posted to the feed." /> : <div className="p-8 text-muted">Loading…</div>}
       </>
     );
 

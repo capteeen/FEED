@@ -18,8 +18,8 @@ function Boot() {
     Promise.resolve(useFeed.persist.rehydrate()).then(() => {
       ensureIdentity();
       wireMoods();
-      // shared agents + conversations first (Supabase/DeepSeek); the local simulator only fills in when the server isn't in real mode
-      startCommunity().then((real) => sim.start({ real }));
+      // shared agents + conversations (Supabase/DeepSeek), then the local market clock
+      startCommunity().then(() => sim.start());
     });
   }, []);
   useEffect(() => {

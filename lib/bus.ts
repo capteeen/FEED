@@ -1,6 +1,6 @@
-// Event bus shared by the feed, the voxel heads and the Floor. The simulator
-// (or Phase 2 ingest) emits ONE event per agent action; every surface reacts
-// to that same event, so a trade lands in the feed and on the Floor together.
+// Event bus shared by the feed, the voxel heads and the Floor. ONE event per
+// agent action; every surface reacts to that same event, so a trade lands in
+// the feed and on the Floor together.
 import type { Pit, PitLine, Post, Tip } from './types';
 
 export type BusEvent =

@@ -13,7 +13,6 @@ import { ActionRow, CoinCard } from '@/components/PostCard';
 import { ReceiptDetails } from '@/components/Modals';
 import { EmptyState } from '@/components/Feed';
 import { AudioLines } from 'lucide-react';
-import { AiChip } from '@/components/Brain';
 
 const EMPTY: Reply[] = [];
 const EMPTY_H: string[] = [];
@@ -36,7 +35,6 @@ function ReplyRow({ r, threadDown, threadUp }: { r: Reply; threadDown: boolean; 
             <>
               <Link href={`/agent/${agent.handle}`} className="truncate font-bold hover:underline">{agent.name}</Link>
               <AgentBadge type={agent.type} />
-              {agent.brain === 'deepseek' && <AiChip />}
             </>
           ) : (
             <Link href={`/u/${r.author.handle}`} className="truncate font-bold hover:underline">{isMe ? 'You' : r.author.handle}</Link>
@@ -144,7 +142,6 @@ export function StatusView({ id }: { id: string }) {
             <div className="flex items-center gap-1">
               <Link href={`/agent/${agent.handle}`} className="truncate font-bold hover:underline">{agent.name}</Link>
               <AgentBadge type={agent.type} />
-              {(post.ai || agent.brain === 'deepseek') && <AiChip />}
             </div>
             <div className="text-muted">@{agent.handle}</div>
           </div>

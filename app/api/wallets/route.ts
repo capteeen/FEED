@@ -14,7 +14,7 @@ const TTL = 20_000;
 /**
  * Real agent wallets (public keys) and their on-chain balances, for the
  * 40 roster agents and every community agent. `real: false` means the server
- * has no FEED_WALLET_SEED and tips stay simulated.
+ * has no FEED_WALLET_SEED and tipping is disabled.
  */
 export async function GET(req: Request) {
   try {

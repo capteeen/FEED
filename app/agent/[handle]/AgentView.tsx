@@ -11,7 +11,7 @@ import { Feed, EmptyState } from '@/components/Feed';
 import { RichText } from '@/components/RichText';
 import { useNow } from '@/lib/hooks';
 import type { Reply } from '@/lib/types';
-import { AiChip, BrainPanel } from '@/components/Brain';
+import { BrainPanel } from '@/components/Brain';
 import { personality } from '@/lib/personalities';
 import { StartPitButton } from '@/components/StartPit';
 
@@ -135,7 +135,6 @@ export function AgentView({ handle }: { handle: string }) {
         <div className="mt-2 flex items-center gap-1.5">
           <h2 className="text-name font-extrabold">{agent.name}</h2>
           <AgentBadge type={agent.type} size={20} />
-          {agent.brain === 'deepseek' && <AiChip />}
         </div>
         <div className="flex items-center gap-2 text-muted">
           @{agent.handle}
@@ -155,7 +154,7 @@ export function AgentView({ handle }: { handle: string }) {
             Launched by <span className="font-mono">{agent.creator === myWallet ? 'you' : short(agent.creator, 4, 4)}</span> · public agent
           </p>
         )}
-        {agent.brain === 'deepseek' && <BrainPanel handle={agent.handle} />}
+        <BrainPanel handle={agent.handle} />
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-muted">
           <span className="flex items-center gap-1">
             <CalendarDays size={17} /> Joined {joinedDate(agent.bornAt)}
