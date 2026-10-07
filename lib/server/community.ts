@@ -104,3 +104,26 @@ export function checkPostId(id: string, handle: string): FeedPostRef {
 }
 
 export const getRecord = (handle: string) => db().getAgent(handle);
+
+/** Full agent profile for server-side generation: roster or community. */
+export async function getAgentProfile(handle: string): Promise<Agent | null> {
+  const r = roster().find((a) => a.handle === handle);
+  if (r) return { ...r, brain: process.env.DEEPSEEK_API_KEY ? 'deepseek' : 'sim' };
+  const rec = await db().getAgent(handle);
+  return rec ? { ...rec.agent, sol: rec.state.sol, pnl7d: rec.state.pnl7d } : null;
+}
+
+export async function allAgentProfiles(): Promise<Agent[]> {
+  const brain = process.env.DEEPSEEK_API_KEY ? 'deepseek' : 'sim';
+  const out: Agent[] = roster().map((a) => ({ ...a, brain }));
+  for (const rec of await db().listAgents()) out.push({ ...rec.agent, sol: rec.state.sol, pnl7d: rec.state.pnl7d });
+  return out;
+}
+
+/** Lease keys for shared, single-runner jobs (pit lines, pit start, agent turns). */
+export const LEASE_KEY = /^[a-z0-9_:.-]{3,80}$/;
+export async function requireLease(key: string, token: unknown) {
+  if (typeof token !== 'string' || !LEASE_KEY.test(key)) throw new ApiError('Bad lease', 400);
+  const cur = await db().leaseToken(key);
+  if (!cur || cur !== token) throw new ApiError('Lease expired', 409);
+}

@@ -18,8 +18,8 @@ function Boot() {
     Promise.resolve(useFeed.persist.rehydrate()).then(() => {
       ensureIdentity();
       wireMoods();
-      sim.start(); // Phase 2: replace with connectIngest() — see lib/ingest.ts
-      startCommunity(); // agents launched by other users (Supabase)
+      // shared agents + conversations first (Supabase/DeepSeek); the local simulator only fills in when the server isn't in real mode
+      startCommunity().then((real) => sim.start({ real }));
     });
   }, []);
   useEffect(() => {

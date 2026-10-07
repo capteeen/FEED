@@ -70,7 +70,7 @@ function buildPost(agent: Agent, kind: PostKind, text: string, receipt: Post['re
   if (agent.personality && !extra.ai && kind !== 'thanks' && kind !== 'pit') text = (text + personalityFlair(agent.personality, R)).slice(0, 400);
   const base = { agentHandle: agent.handle, kind, text, receipt, at, ...extra };
   const id = encodePostId(base as Post, agent.custom ? agent : undefined);
-  const reach = Math.sqrt(agent.followers);
+  const reach = st().realMode ? 0 : Math.sqrt(agent.followers);
   return {
     id,
     replies: 0,
@@ -265,7 +265,7 @@ function maybeFakeHuman(post: Post) {
 
 function thankTip(tip: Tip, mine: boolean) {
   const agent = st().agents[tip.toAgent];
-  if (!agent || tip.remote) return; // another user's tip: their browser runs the thank-you
+  if (!agent || tip.remote || st().realMode) return; // real mode: the server writes the thank-you // another user's tip: their browser runs the thank-you
   const post = tip.postId ? st().posts[tip.postId] ?? decodePostId(tip.postId)?.post : undefined;
   const words = T.thanksText(tip.from, tip.sol, R);
   if (post) agentReply(post, agent, words, tip.from, int(R, 2000, 5000), 1400);
@@ -285,6 +285,8 @@ function emit(post: Post) {
 }
 
 function afterPost(post: Post) {
+  // real mode: threads and thank-yous are written by DeepSeek on the server (lib/community.ts)
+  if (st().realMode) return;
   maybeAgentThread(post);
   maybeFakeHuman(post);
   // other agents like it over the next minute
@@ -293,7 +295,7 @@ function afterPost(post: Post) {
 }
 
 /** Local simulated agents only: real agents act through their brain loop, community agents through their lease. */
-function pickAgent(): Agent {
+function pickAgent(): Agent | undefined {
   const sims = agents().filter((a) => !isReal(a) && !a.community);
   const online = sims.filter((a) => a.online);
   return pick(R, online.length ? online : sims);
@@ -301,6 +303,7 @@ function pickAgent(): Agent {
 
 function loop() {
   const a = pickAgent();
+  if (!a) return later(5000, loop);
   const post = generate(a);
   emit(post);
   afterPost(post);
@@ -326,10 +329,11 @@ function market() {
 
 function presence() {
   const as = agents();
-  for (let i = 0; i < 2; i++) {
-    const a = pick(R, as);
-    st().updateAgent(a.handle, { online: chance(R, 0.78) });
-  }
+  if (!st().realMode)
+    for (let i = 0; i < 2; i++) {
+      const a = pick(R, as);
+      st().updateAgent(a.handle, { online: chance(R, 0.78) });
+    }
   later(12000, presence);
 }
 
@@ -345,7 +349,9 @@ function startPit() {
   if (!ticker) {
     const c = pick(R, coinList());
     ticker = c.ticker;
-    bulls = [pickAgent().handle];
+    const a = pickAgent();
+    if (!a) return;
+    bulls = [a.handle];
   }
   const size = int(R, 3, 8);
   bulls = Array.from(new Set(bulls)).slice(0, Math.max(1, Math.floor(size / 2)));
@@ -478,7 +484,8 @@ function seedHistory() {
   const posts: Post[] = [];
   for (let i = n; i > 0; i--) {
     const at = now - i * int(R, 15_000, 40_000);
-    posts.push(generate(pickAgent(), at));
+    const a = pickAgent();
+    if (a) posts.push(generate(a, at));
   }
   posts.sort((a, b) => a.at - b.at);
   for (const p of posts) {
@@ -500,18 +507,22 @@ function seedHistory() {
   }
 }
 
+const reactHooks = new Set<(pitId: string, emoji: string) => void>();
+
 export const sim = {
-  start() {
+  start(opts: { real?: boolean } = {}) {
     if (started) return;
     started = true;
     seedCoins();
-    seedHistory();
+    if (!opts.real) seedHistory();
     st().setSimStarted();
-    later(1500, loop);
-    later(1500, engagement);
+    if (!opts.real) {
+      later(1500, loop);
+      later(1500, engagement);
+      later(6000, startPit);
+    }
     later(2000, market);
     later(5000, presence);
-    later(6000, startPit);
     // NEXT_PUBLIC_REAL_AGENTS=handle1,handle2 turns roster agents into real DeepSeek agents
     for (const h of (process.env.NEXT_PUBLIC_REAL_AGENTS ?? '').split(',').map((x) => x.trim()).filter(Boolean))
       if (st().agents[h]) st().updateAgent(h, { brain: 'deepseek' });
@@ -522,6 +533,7 @@ export const sim = {
     };
     tickNow();
     onHumanReply((reply) => {
+      if (st().realMode) return; // answered by the server (lib/community.ts)
       // the post may come from a shared link (decoded id) rather than this session
       const post = st().posts[reply.postId] ?? decodePostId(reply.postId)?.post;
       if (post) answerHuman(post, reply.author.handle, reply.text, true);
@@ -551,9 +563,10 @@ export const sim = {
     emit(post);
     afterPost(post);
     if (agent && isReal(agent) && !agent.community) startBrain(agent.handle);
+    if (st().realMode) return;
     for (let i = 0; i < 3; i++) {
       const other = pickAgent();
-      if (agent && other.handle !== agent.handle) agentReply(post, other, `@${agent.handle} ${T.agentReplyToAgent('launch', R, agent.ticker)}`, agent.handle, int(R, 4000, 14000));
+      if (agent && other && other.handle !== agent.handle) agentReply(post, other, `@${agent.handle} ${T.agentReplyToAgent('launch', R, agent.ticker)}`, agent.handle, int(R, 4000, 14000));
     }
   },
   /**
@@ -595,8 +608,12 @@ export const sim = {
   ensureAgentCoin(a: Agent) {
     if (!st().coins[a.ticker]) st().upsertCoin({ ...makeCoin(a.ticker, Math.round(range(R, 6_000, 40_000)), a.handle, a.name), ca: a.coinCa });
   },
-  /** Human reacts in a Pit (floating emoji). */
+  /** Human reacts in a Pit (floating emoji). Real mode: lib/community.ts shares it. */
   react(pitId: string, emoji: string) {
     st().reactPit(pitId, emoji, true);
+    reactHooks.forEach((h) => h(pitId, emoji));
+  },
+  onReact(h: (pitId: string, emoji: string) => void) {
+    reactHooks.add(h);
   },
 };

@@ -63,9 +63,9 @@ export async function waitForConfirmation(connection: Connection, sig: string, l
 }
 
 /** Tell the server; it reads the tx from the chain and records the tip for everyone. */
-export async function registerTip(sig: string, postId?: string) {
-  const res = await fetch('/api/tips', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sig, postId }) });
-  const data = (await res.json().catch(() => ({}))) as { error?: string; fresh?: boolean };
+export async function registerTip(sig: string, postId?: string, from?: string) {
+  const res = await fetch('/api/tips', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sig, postId, from }) });
+  const data = (await res.json().catch(() => ({}))) as { error?: string; fresh?: boolean; thanks?: { postId?: string } };
   if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
   return data;
 }

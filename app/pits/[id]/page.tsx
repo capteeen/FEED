@@ -31,6 +31,7 @@ export default function PitRoom({ params }: { params: { id: string } }) {
   const [speaking, setSpeaking] = useState<{ handle: string; text: string; at: number } | null>(null);
   const joinedRef = useRef(false);
 
+  const table = pit?.agents.join(',') ?? '';
   useEffect(() => {
     if (!hasPit || !canvas.current || !webglAvailable()) return;
     const s = useFeed.getState();
@@ -58,7 +59,7 @@ export default function PitRoom({ params }: { params: { id: string } }) {
       el.removeEventListener('pointermove', pm);
       el.removeEventListener('pointerup', pu);
     };
-  }, [hasPit, params.id]);
+  }, [hasPit, params.id, table]);
 
   useEffect(() => sceneRef.current?.setTheme(theme === 'light'), [theme]);
   useEffect(() => {
@@ -69,6 +70,7 @@ export default function PitRoom({ params }: { params: { id: string } }) {
     let n = 0;
     return bus.on((e) => {
       if (e.type === 'pitLine' && e.pit.id === params.id) {
+        if (e.line.system) return;
         if (joinedRef.current) {
           const a = useFeed.getState().agents[e.line.handle];
           speakLine({ handle: e.line.handle, text: e.line.text }, a ?? { handle: e.line.handle, type: 'trader' });
@@ -113,7 +115,7 @@ export default function PitRoom({ params }: { params: { id: string } }) {
     const p = useFeed.getState().pits[params.id];
     if (p) {
       useFeed.getState().setPitListeners(p.id, p.listeners + 1);
-      const last = p.lines[p.lines.length - 1];
+      const last = [...p.lines].reverse().find((l) => !l.system);
       if (last && p.live) {
         const a = useFeed.getState().agents[last.handle];
         speakLine({ handle: last.handle, text: last.text }, a ?? { handle: last.handle, type: 'trader' });
@@ -137,7 +139,8 @@ export default function PitRoom({ params }: { params: { id: string } }) {
       </>
     );
 
-  const last = pit.lines[pit.lines.length - 1];
+  const spokenLines = pit.lines.filter((l) => !l.system);
+  const last = spokenLines[spokenLines.length - 1];
   const current = joined && speaking ? speaking : last;
   const cur = current ? agents[current.handle] : undefined;
   const talking = joined && !!speaking && voiceEnabled();
@@ -148,7 +151,9 @@ export default function PitRoom({ params }: { params: { id: string } }) {
       <div className="p-4">
         <div className="flex items-center gap-2 text-meta font-bold">
           {pit.live ? <span className="rounded-full bg-pit px-2 py-0.5 text-[11px] tracking-wide text-white">LIVE</span> : <span className="rounded-full bg-text/10 px-2 py-0.5 text-[11px] tracking-wide text-muted">ENDED</span>}
-          <span className="text-muted">${pit.ticker} · {pit.agents.length} agents · {pit.lines.length} lines</span>
+          <span className="text-muted">
+            ${pit.ticker} · {pit.agents.length} agents · {spokenLines.length} lines{pit.host ? ` · hosted by @${pit.host}` : ''}
+          </span>
         </div>
         <h2 className="mt-2 text-headline font-extrabold">{pit.topic}</h2>
         {pit.live && (
@@ -258,6 +263,12 @@ export default function PitRoom({ params }: { params: { id: string } }) {
         <div ref={transcript} className="scroll-thin max-h-[420px] overflow-y-auto px-4 pb-4">
           {pit.lines.map((l, i) => {
             const a = agents[l.handle];
+            if (l.system)
+              return (
+                <div key={i} className="flex items-center gap-2 py-1.5 text-meta italic text-muted">
+                  <VoxelAvatar handle={l.handle} size={18} link={false} /> {a?.name ?? l.handle} {l.text}
+                </div>
+              );
             return (
               <div key={i} className="flex gap-2 border-b border-border py-2 last:border-0">
                 <span className={`mt-0.5 h-5 w-1 shrink-0 rounded-full ${pit.stances[l.handle] === 'bull' ? 'bg-win' : 'bg-loss'}`} />

@@ -55,6 +55,9 @@ export interface FeedState extends UI {
   communityLoaded: boolean;
   /** server has real agent wallets: tips are real SOL transfers */
   tipsReal: boolean;
+  /** every agent is shared and written by DeepSeek on the server; nothing is simulated locally */
+  realMode: boolean;
+  pitIntervalMs: number;
   cluster: string;
 
   // the human
@@ -80,6 +83,7 @@ export interface FeedState extends UI {
   startPit: (pit: Pit) => void;
   addPitLine: (pitId: string, line: PitLine) => void;
   reactPit: (pitId: string, emoji: string, fromHuman?: boolean) => void;
+  addPitAgent: (pitId: string, handle: string, stance: 'bull' | 'bear') => void;
   endPit: (pitId: string, postId: string) => void;
   setPitListeners: (pitId: string, n: number) => void;
   notify: (n: Omit<Notification, 'id' | 'read' | 'at'>) => void;
@@ -89,6 +93,7 @@ export interface FeedState extends UI {
   setBrainStatus: (handle: string, st: Omit<BrainStatus, 'at'>) => void;
   upsertCommunityAgents: (list: Agent[]) => void;
   setWallets: (real: boolean, wallets: Record<string, string>, balances: Record<string, number>, cluster: string) => void;
+  setRealMode: (real: boolean, pitIntervalMs?: number) => void;
 
   toggleLike: (postId: string) => void;
   toggleRepost: (postId: string) => void;
@@ -132,6 +137,8 @@ export const useFeed = create<FeedState>()(
       brainStatus: {},
       communityLoaded: false,
       tipsReal: false,
+      realMode: false,
+      pitIntervalMs: 180_000,
       cluster: 'devnet',
 
       me: { handle: 'anon', name: 'Anon', joinedAt: 0 },
@@ -187,6 +194,7 @@ export const useFeed = create<FeedState>()(
       addReply: (reply) => {
         const s = get();
         const list = s.replies[reply.postId] ?? [];
+        if (list.some((r) => r.id === reply.id)) return;
         const post = s.posts[reply.postId];
         set({
           replies: { ...s.replies, [reply.postId]: [...list, reply] },
@@ -238,13 +246,21 @@ export const useFeed = create<FeedState>()(
         if (changed) set({ coins });
       },
 
-      startPit: (pit) => set({ pits: { ...get().pits, [pit.id]: pit }, pitOrder: [pit.id, ...get().pitOrder] }),
+      startPit: (pit) => {
+        if (get().pits[pit.id]) return;
+        set({ pits: { ...get().pits, [pit.id]: pit }, pitOrder: [pit.id, ...get().pitOrder] });
+      },
       addPitLine: (pitId, line) => {
         const pit = get().pits[pitId];
-        if (!pit) return;
+        if (!pit || pit.lines.some((l) => l.at === line.at && l.handle === line.handle)) return;
         const next = { ...pit, lines: [...pit.lines, line] };
         set({ pits: { ...get().pits, [pitId]: next } });
         bus.emit({ type: 'pitLine', pit: next, line });
+      },
+      addPitAgent: (pitId, handle, stance) => {
+        const pit = get().pits[pitId];
+        if (!pit || pit.agents.includes(handle)) return;
+        set({ pits: { ...get().pits, [pitId]: { ...pit, agents: [...pit.agents, handle], stances: { ...pit.stances, [handle]: stance } } } });
       },
       reactPit: (pitId, emoji) => {
         const pit = get().pits[pitId];
@@ -277,6 +293,7 @@ export const useFeed = create<FeedState>()(
         }
         set({ agents, communityLoaded: true });
       },
+      setRealMode: (realMode, pitIntervalMs) => set({ realMode, ...(pitIntervalMs ? { pitIntervalMs } : {}) }),
       setWallets: (real, wallets, balances, cluster) => {
         const agents = { ...get().agents };
         for (const h in wallets) if (agents[h]) agents[h] = { ...agents[h], wallet: wallets[h], onchainSol: balances[h] };
@@ -329,7 +346,8 @@ export const useFeed = create<FeedState>()(
         if (!clean) return null;
         const post = s.posts[postId] ?? decodePostId(postId)?.post;
         const reply: Reply = { id: uid('r'), postId, author: { kind: 'human', handle: s.me.handle }, text: clean, at: Date.now(), replyTo: post?.agentHandle };
-        get().addReply(reply);
+        // real mode: the server stores the reply and the agent answers via DeepSeek (lib/community.ts)
+        if (!s.realMode) get().addReply(reply);
         set({ myReplies: [{ ...reply, agentHandle: post?.agentHandle ?? '' }, ...get().myReplies].slice(0, 200) });
         humanReplyListeners.forEach((l) => l(reply));
         return reply;

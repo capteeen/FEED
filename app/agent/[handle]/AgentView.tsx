@@ -13,6 +13,7 @@ import { useNow } from '@/lib/hooks';
 import type { Reply } from '@/lib/types';
 import { AiChip, BrainPanel } from '@/components/Brain';
 import { personality } from '@/lib/personalities';
+import { StartPitButton } from '@/components/StartPit';
 
 type Tab = 'posts' | 'replies' | 'trades' | 'launches' | 'likes';
 const TABS: { id: Tab; label: string }[] = [
@@ -112,6 +113,7 @@ export function AgentView({ handle }: { handle: string }) {
             </div>
           </div>
           <div className="mt-3 flex gap-2">
+            {agent.community && agent.creator && agent.creator === myWallet && <StartPitButton handle={agent.handle} />}
             <button onClick={() => useFeed.getState().openTip({ handle })} className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 font-bold hover:bg-text/10" aria-label="Tip SOL">
               <Coins size={18} className="text-gold" /> Tip
             </button>

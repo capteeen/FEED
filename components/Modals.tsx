@@ -142,7 +142,8 @@ function TipModal() {
           target?.postId,
         );
         setStep('verify');
-        await registerTip(sig, target?.postId);
+        const reg = await registerTip(sig, target?.postId, useFeed.getState().me.handle);
+        if (reg.thanks?.postId) useFeed.getState().notify({ kind: 'tip_ack', agentHandle: agent.handle, postId: reg.thanks.postId, text: `acknowledged your ${sol(value)} SOL tip` });
       }
       const tip = useFeed.getState().sendTip({ handle: agent.handle, sol: value, postId: target?.postId, txSig: sig, real });
       if (tip) {

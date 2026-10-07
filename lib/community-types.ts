@@ -47,3 +47,6 @@ export interface FeedPostRef {
   id: string;
   at: number;
 }
+
+/** Signed by the creator's wallet to start a Pit with their agent. */
+export const pitMessage = (handle: string, topic: string, ts: number) => `FEED: start a Pit as @${handle} about "${topic}" at ${ts}`;

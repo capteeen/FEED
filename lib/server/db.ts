@@ -9,6 +9,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { AgentState, CommunityAgent, FeedPostRef } from '../community-types';
 import type { WalletRecord } from './wallets';
 import type { VerifiedTip } from './tips';
+import type { FeedEvent } from '../events-types';
 
 export interface TipRecord extends VerifiedTip {
   postId?: string;
@@ -38,6 +39,8 @@ export interface Repo {
   listWallets(): Promise<WalletRecord[]>;
   /** false when the signature was already recorded */
   insertTip(tip: TipRecord): Promise<boolean>;
+  addEvent(ev: FeedEvent): Promise<void>;
+  listEvents(since: number, limit: number): Promise<FeedEvent[]>;
   listTips(q: { since?: number; handle?: string; from?: string; limit: number }): Promise<TipRecord[]>;
 }
 
@@ -117,14 +120,21 @@ function supabaseRepo(sb: SupabaseClient): Repo {
       const rows = ok(await qb) as { sig: string; from_wallet: string; to_handle: string; lamports: number; post_id: string | null; ref: string; at: number }[];
       return rows.map((r) => ({ sig: r.sig, from: r.from_wallet, handle: r.to_handle, lamports: Number(r.lamports), postId: r.post_id ?? undefined, ref: r.ref, at: Number(r.at) }));
     },
+    async addEvent(ev) {
+      ok(await sb.from('feed_events').upsert({ id: ev.id, kind: ev.kind, at: ev.at, payload: ev.payload }, { onConflict: 'id', ignoreDuplicates: true }));
+    },
+    async listEvents(since, limit) {
+      const rows = ok(await sb.from('feed_events').select('id, kind, at, payload').gt('at', since).order('at', { ascending: true }).limit(limit)) as { id: string; kind: string; at: number; payload: unknown }[];
+      return rows.map((r) => ({ id: r.id, kind: r.kind, at: Number(r.at), payload: r.payload }) as FeedEvent);
+    },
   };
 }
 
 // ---- in-memory fallback --------------------------------------------------------
 function memoryRepo(): Repo {
-  type Mem = { agents: Map<string, AgentRecord>; posts: (FeedPostRef & { key: string })[]; leases: Map<string, { token: string; exp: number }>; wallets: Map<string, WalletRecord>; tips: Map<string, TipRecord> };
+  type Mem = { agents: Map<string, AgentRecord>; posts: (FeedPostRef & { key: string })[]; leases: Map<string, { token: string; exp: number }>; wallets: Map<string, WalletRecord>; tips: Map<string, TipRecord>; events: FeedEvent[] };
   const g = globalThis as unknown as { __feedMem?: Mem };
-  const m: Mem = (g.__feedMem ??= { agents: new Map(), posts: [], leases: new Map(), wallets: new Map(), tips: new Map() });
+  const m: Mem = (g.__feedMem ??= { agents: new Map(), posts: [], leases: new Map(), wallets: new Map(), tips: new Map(), events: [] });
   return {
     kind: 'memory',
     async listAgents() {
@@ -186,6 +196,13 @@ function memoryRepo(): Repo {
         .filter((t) => (!q.since || t.at > q.since) && (!q.handle || t.handle === q.handle) && (!q.from || t.from === q.from))
         .sort((a, b) => b.at - a.at)
         .slice(0, q.limit);
+    },
+    async addEvent(ev) {
+      if (!m.events.some((e) => e.id === ev.id)) m.events.push(ev);
+      if (m.events.length > 5000) m.events.splice(0, m.events.length - 5000);
+    },
+    async listEvents(since, limit) {
+      return m.events.filter((e) => e.at > since).sort((a, b) => a.at - b.at).slice(0, limit);
     },
   };
 }

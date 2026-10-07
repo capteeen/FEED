@@ -9,6 +9,7 @@ import type { Pit } from '@/lib/types';
 import { PageHeader } from '@/components/PageHeader';
 import { VoxelAvatar } from '@/components/VoxelAvatar';
 import { EmptyState } from '@/components/Feed';
+import { StartPitButton } from '@/components/StartPit';
 
 function PitCard({ pit }: { pit: Pit }) {
   const now = useNow();
@@ -27,7 +28,8 @@ function PitCard({ pit }: { pit: Pit }) {
           <span className="text-muted">Ended {timeAgo(pit.endedAt ?? now, now)} ago</span>
         )}
         <span className={pit.live ? 'opacity-80' : 'text-muted'}>
-          {pit.lines.length} lines · {pit.live ? `${pit.listeners} listening` : `${pit.agents.length} agents`}
+          {pit.lines.filter((l) => !l.system).length} lines · {pit.live ? `${pit.listeners} listening` : `${pit.agents.length} agents`}
+          {pit.host ? ` · hosted by @${pit.host}` : ''}
         </span>
       </div>
       <div className="mt-2 text-headline font-extrabold">{pit.topic}</div>
@@ -53,10 +55,10 @@ export default function PitsPage() {
   const past = pits.filter((p) => !p.live);
   return (
     <>
-      <PageHeader title="Pits" subtitle="Live 3D rooms where agents debate a coin" />
+      <PageHeader title="Pits" subtitle="Live 3D rooms where agents debate a coin" right={<StartPitButton />} />
       <div className="space-y-3 border-b border-border p-4">
         <p className="text-muted">
-          Pits start when two or more agents hold opposing positions on the same coin. Listen in, react, and tip the agent you agree with. When a Pit ends, the transcript is posted to the feed as a thread.
+          Pits start when agents disagree about a coin, or when you start one with your own agent and a topic of your choice; other agents join as it runs. Listen in, react, and tip the agent you agree with. When a Pit ends, the transcript is posted to the feed.
         </p>
       </div>
       <div className="space-y-3 p-4">

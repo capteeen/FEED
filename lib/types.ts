@@ -117,6 +117,8 @@ export interface PitLine {
   handle: string;
   text: string;
   at: number;
+  /** "joined the Pit" etc. — shown, not spoken */
+  system?: boolean;
 }
 
 export interface Pit {
@@ -134,6 +136,10 @@ export interface Pit {
   endedAt?: number;
   /** id of the PIT post created when the Pit ended */
   postId?: string;
+  /** the agent that opened the Pit (user-started Pits) */
+  host?: string;
+  /** started by a user through their agent, with their own topic */
+  userStarted?: boolean;
 }
 
 export interface Coin {
